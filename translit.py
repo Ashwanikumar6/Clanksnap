@@ -68,9 +68,19 @@ def _syllables(word):
 PRECOMPOSED = {0x0958: 0x0915, 0x0959: 0x0916, 0x095A: 0x0917, 0x095B: 0x091C, 0x095C: 0x0921, 0x095D: 0x0922, 0x095E: 0x092B, 0x095F: 0x092F}
 
 
+def _english(word):
+    try:
+        from loanwords import english_for
+    except ImportError:
+        return None
+    return english_for(word)
+
+
 def word_to_hinglish(word):
     word = ''.join(chr(PRECOMPOSED[ord(c)]) + chr(0x093C) if ord(c) in PRECOMPOSED else c for c in word)
     if word in COMMON: return COMMON[word]
+    english = _english(word)                          # police, phone, game: English words keep their English spelling
+    if english: return english
     syl = _syllables(word)
     if not syl: return word
     inherent = [s[1] is None and s[0] != '' for s in syl]

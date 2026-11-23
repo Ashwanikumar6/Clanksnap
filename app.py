@@ -122,7 +122,7 @@ def start_export(b,job=None):
  id,src,m,start,end=source_range(b)
  layout=b.get('layout','stack')
  if layout not in {x[0] for x in CATALOG}:raise HTTPException(400,'Choose a valid layout.')
- style=b.get('caption_style','gta')
+ style=b.get('caption_style',captions.DEFAULT_STYLE)
  if style not in ('gta','bold','clean','hormozi','mrbeast'):raise HTTPException(400,'Choose a valid caption style.')
  if (b.get('caption_anim') or 'highlight') not in ANIMS:raise HTTPException(400,'Choose a valid caption animation.')
  try:
@@ -261,7 +261,7 @@ def start_make(b, previous=None):
  try:focus_brief,include_phrases,exclude_phrases=curation.focus_settings(b)
  except ValueError as error:raise HTTPException(400,str(error))
  acc='best' if b.get('accurate')=='best' else 'fast'     # the turbo/"accurate" local model was removed: its captions were worse than YouTube's. Only Best Hindi (large-v3) uses a local model on purpose.
- layout=b.get('layout','blur');style=b.get('caption_style','gta');language=b.get('language') or None
+ layout=b.get('layout','blur');style=b.get('caption_style',captions.DEFAULT_STYLE);language=b.get('language') or None
  if not languages.valid(language):raise HTTPException(400,'Choose Auto, Hinglish or a language from the list.')
  from translit import to_hinglish
  top_h=b.get('top');cam=b.get('cam') or {'x':0,'y':0,'w':.25,'h':.3};game=b.get('game') or {'x':.25,'y':0,'w':.75,'h':1}
@@ -554,7 +554,7 @@ def live_render(sess,start,dur,why,chat_feature):
  elif hm=='custom' and o.get('hook_text'):hook=str(o['hook_text'])[:70]
  feats={'chat':chat_feature,'words':excite.window_score(words,real),'llm':llm,'loud':loud}
  W=learn.load_weights(DATA);viral=min(99,round(100*learn.score(feats,W)))
- body={'id':name,'start':0,'end':real,'layout':o.get('layout','blur'),'captions':want_caps,'caption_style':o.get('caption_style','gta'),'language':None,'hook':hook,
+ body={'id':name,'start':0,'end':real,'layout':o.get('layout','blur'),'captions':want_caps,'caption_style':o.get('caption_style',captions.DEFAULT_STYLE),'language':None,'hook':hook,
        'aspect':o.get('aspect','vertical'),'resolution':o.get('resolution',1080),'fps':o.get('fps',0),'title':title,'post_caption':title,'cam':o['cam'],'game':o['game'],'top':o.get('top',.32),'words':words,'features':feats,'weights_used':W,'creator':o.get('creator')}
  for k in styling.KEYS+brands.KEYS+hooks.KEYS:
   if o.get(k) not in (None,''):body[k]=o[k]
@@ -573,7 +573,7 @@ def start_live(target,opts,creator=None,before=24,after=14):
   if s_.state['status'] in ('starting','recording'):raise RuntimeError('A live session is already running. Stop it first.')
  sess=live_session.LiveSession(target,DATA,live_render,before,after)
  sess.creator=creator;sess.auto=bool(creator);sess.max_seconds=LIVE_AUTO_HOURS*3600 if creator else None
- sess.opts={'layout':opts.get('layout','blur'),'caption_style':opts.get('caption_style','gta'),'language':opts.get('language') or None,
+ sess.opts={'layout':opts.get('layout','blur'),'caption_style':opts.get('caption_style',captions.DEFAULT_STYLE),'language':opts.get('language') or None,
             'cam':opts.get('cam') or {'x':0,'y':0,'w':.25,'h':.3},'game':opts.get('game') or {'x':.25,'y':0,'w':.75,'h':1},
             'aspect':opts.get('aspect','vertical'),'resolution':opts.get('resolution',1080),'fps':opts.get('fps',0),'top':opts.get('top') if isinstance(opts.get('top'),(int,float)) else .32,'creator':creator,
             'captions':opts.get('captions',True) is not False,'hook_mode':opts.get('hook_mode') if opts.get('hook_mode') in ('ai','title','custom') else 'ai','hook_text':str(opts.get('hook_text') or '')[:70]}

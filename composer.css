@@ -99,3 +99,13 @@
 .clip-card.picked{outline:2px solid var(--pink);outline-offset:-2px}
 .clip-card .trash{margin-left:auto;padding:5px 9px;font-size:13px;border-radius:8px;background:#2a1830;border-color:#5c2f50}
 .selecting .clip-card .trash{display:none}
+
+/* caption style tiles */
+.caption-choice.cs-karaoke>span{color:#fff;text-shadow:2px 2px 0 #000,-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000}.cs-karaoke strong{color:#ffe500}
+.caption-choice.cs-tiktok>span{color:#fff;font-weight:800;text-shadow:1px 1px 0 #000,-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000}.cs-tiktok strong{color:#d4fb58}
+.caption-choice.cs-pill>span{color:#fff;font-weight:800}.cs-pill strong{background:#d4fb58;color:#000;border-radius:999px;padding:1px 9px}
+.caption-choice.cs-oneword>span{color:#ffe500;font-size:26px;text-shadow:3px 3px 0 #000,-2px -2px 0 #000}
+.caption-choice.cs-cine>span{color:#f2f2f2;font-weight:400;letter-spacing:3px;font-size:13px}
+.caption-choice.cs-boxed>span em{font-style:normal;background:#181018;color:#fff;padding:4px 10px;border-radius:4px}
+.caption-choice.cs-outlined>span{color:#fff;-webkit-text-stroke:3px #000;paint-order:stroke fill}
+.caption-choice.cs-comic>span{color:#ffe500;font-style:italic;text-shadow:3px 3px 0 #ff4ba5,-2px -2px 0 #000,2px -2px 0 #000}

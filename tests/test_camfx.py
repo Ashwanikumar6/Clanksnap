@@ -176,3 +176,27 @@ class AssetsTests(unittest.TestCase):
         self.assertEqual(wanted - allowed, set(), 'referenced in index.html but not served by /assets')
         for name in wanted:
             self.assertTrue((root / name).is_file(), name)
+
+
+class LoanwordTests(unittest.TestCase):
+    def test_english_words_written_in_devanagari_get_their_english_spelling(self):
+        from translit import to_hinglish
+        cases = {'पुलिस': 'police', 'पोलिस': 'police', 'फोन': 'phone', 'फ़ोन': 'phone', 'गेम': 'game', 'कार': 'car', 'मोबाइल': 'mobile',
+                 'जीटीए': 'gta', 'स्ट्रीमर': 'streamer', 'वायरल': 'viral', 'क्लिप': 'clip', 'हेलीकॉप्टर': 'helicopter'}
+        for dev, eng in cases.items():
+            self.assertEqual(to_hinglish(dev), eng, dev)
+
+    def test_punctuation_and_hindi_words_are_untouched(self):
+        from translit import to_hinglish
+        self.assertEqual(to_hinglish('पुलिस,'), 'police,')
+        self.assertEqual(to_hinglish('पुलिस।'), 'police.')
+        self.assertEqual(to_hinglish('है'), 'hai')
+        self.assertEqual(to_hinglish('बस'), 'bas')           # Hindi "enough", not the English bus
+        self.assertEqual(to_hinglish('गाड़ी'), to_hinglish('गाड़ी'))
+        self.assertEqual(to_hinglish('पुलिसवाले'), 'police wale')
+        self.assertEqual(to_hinglish('फोनों'), 'phones')
+
+    def test_every_loanword_is_plain_ascii_lowercase_letters(self):
+        import loanwords
+        for dev, eng in loanwords.LOANWORDS.items():
+            self.assertTrue(all(c.isascii() and (c.isalpha() or c == ' ') for c in eng), (dev, eng))

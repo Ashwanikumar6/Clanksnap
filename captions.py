@@ -146,6 +146,25 @@ STYLES={
  'hormozi':('&H00FFFFFF&','&H00FFFF00&',r'\bord7\3c&H00000000&\shad4\4c&H80000000&',84,112),
  'mrbeast':('&H0000FFFF&','&H000066FF&',r'\bord9\3c&H00000000&\shad5\4c&H00000000&',90,112),
 }
+STYLES.update({
+ 'karaoke':('&H00FFFFFF&','&H0000E5FF&',r'\bord8\3c&H00000000&\shad3\4c&H80000000&',84,110),          # white line, yellow word being spoken
+ 'tiktok':('&H00FFFFFF&','&H0058FBD4&',r'\bord5\3c&H00000000&\shad2\4c&H80000000&',70,0),            # classic TikTok: mixed case, black stroke, lime word
+ 'pill':('&H00FFFFFF&','&H00000000&',r'\bord4\3c&H00000000&\shad0',74,0),                           # the spoken word sits on a lime pill
+ 'oneword':('&H0000E5FF&','&H0000E5FF&',r'\bord9\3c&H00000000&\shad4\4c&H80000000&',118,116),       # one huge word at a time
+ 'cine':('&H00F2F2F2&','&H00FFFFFF&',r'\bord2\3c&H00101010&\shad2\4c&H80000000&\fsp3\blur0.6',54,0),  # quiet cinematic lowercase
+ 'boxed':('&H00FFFFFF&','&H0000E5FF&',r'\3c&H00181018&\3a&H30&\shad0',64,0),                        # dark box behind the line
+ 'outlined':('&H00FFFFFF&','&H00FFFFFF&',r'\bord8\3c&H00000000&\shad0',76,108),                     # white with a thick black outline
+ 'comic':('&H0000E5FF&','&H00FFFFFF&',r'\bord10\3c&H00000000&\shad6\4c&H00A54BFF&\i1',88,112),      # yellow comic with a pink shadow
+})
+STYLE_FLAGS={
+ 'tiktok':{'mixed':True},
+ 'pill':{'mixed':True,'active_tags':r'\1c&H00000000&\3c&H0058FBD4&\bord16\shad0','rest_tags':r'\1c&H00FFFFFF&\3c&H00000000&\bord4\shad0'},
+ 'oneword':{'max_words':1,'anim':'one_by_one'},
+ 'cine':{'lower':True},
+ 'boxed':{'mixed':True,'style':'Boxed'},
+ 'outlined':{'mixed':True},
+}
+DEFAULT_STYLE='karaoke'
 STYLE_NAMES=tuple(STYLES)+('clean',)
 
 def safe(text):return str(text).replace('\\','/').replace('{','(').replace('}',')').replace('\n',' ')
@@ -189,9 +208,13 @@ def write(words,style,folder,name,hook='',position=1450,hook_y=300,width=1080,he
          '[V4+ Styles]','Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding',
          'Style: Main,Arial,72,&H00FFFFFF,&H0000FFFF,&H00100B18,&H99000000,-1,0,0,0,100,100,0,0,1,5,2,5,50,50,0,1',
          '[Events]','Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text']
-    if custom.get('caption_font'):ass[7]=ass[7].replace('Main,Arial,','Main,'+custom['caption_font']+',')
+    ass.insert(8,'Style: Boxed,Arial,72,&H00FFFFFF,&H0000FFFF,&H00181018,&H00000000,-1,0,0,0,100,100,0,0,3,14,0,5,50,50,0,1')
+    if custom.get('caption_font'):
+        ass[7]=ass[7].replace('Main,Arial,','Main,'+custom['caption_font']+',');ass[8]=ass[8].replace('Boxed,Arial,','Boxed,'+custom['caption_font']+',')
+    flags=STYLE_FLAGS.get(style,{})
+    if flags.get('anim') and anim=='highlight':anim=flags['anim']
     font_size=custom.get('caption_size',STYLES.get(style,('','','',58,0))[3])
-    srt=[];groups=group_words(words,max_words=custom.get('caption_max_words',4),max_chars=int((width-100*width/1080)/(font_size*scale*0.62)))
+    srt=[];groups=group_words(words,max_words=flags.get('max_words') or custom.get('caption_max_words',4),max_chars=int((width-100*width/1080)/(font_size*scale*0.62)))
     for i,group in enumerate(groups):
         if not group:continue
         begin=group[0]['start'];end=group[-1]['end']
@@ -202,11 +225,12 @@ def write(words,style,folder,name,hook='',position=1450,hook_y=300,width=1080,he
         active=ass_color(custom['caption_active']) if 'caption_active' in custom else active
         if 'caption_outline' in custom:extra+=BS+'3c'+ass_color(custom['caption_outline'])
         size=round(custom.get('caption_size',size)*scale)
-        cs=(lambda v:v.lower()) if style=='clean' else (lambda v:v.upper())
+        cs=(lambda v:v.lower()) if (style=='clean' or flags.get('lower')) else ((lambda v:v) if flags.get('mixed') else (lambda v:v.upper()))
+        ev_style=flags.get('style','Main');at=flags.get('active_tags','');rt=flags.get('rest_tags','')
         pos=BS+'pos('+str(width//2)+','+str(position)+')'+BS+'fs'+str(size)+extra
         if anim=='full_line' or (style=='clean' and anim=='highlight' and 'caption_active' not in custom):
             text='{'+pos+BS+'c'+rest+BS+'fad(90,0)}'+' '.join(cs(safe(w['text'])) for w in group)
-            ass.append(f'Dialogue: 1,{stamp(begin,True)},{stamp(end,True)},Main,,0,0,0,,{text}')
+            ass.append(f'Dialogue: 1,{stamp(begin,True)},{stamp(end,True)},{ev_style},,0,0,0,,{text}')
             continue
         for n,word in enumerate(group):
             a=max(begin,word['start']);b=group[n+1]['start'] if n+1<len(group) else end
@@ -220,11 +244,11 @@ def write(words,style,folder,name,hook='',position=1450,hook_y=300,width=1080,he
                 t=cs(safe(group[k]['text']));newest=(k==n)
                 if newest and (pop or anim in ('pop_in','one_by_one')):
                     pp=str(pop or 118)
-                    chunks.append('{'+BS+'c'+active+BS+'fscx100'+BS+'fscy100'+BS+'t(0,110,'+BS+'fscx'+pp+BS+'fscy'+pp+')'+BS+'t(110,230,'+BS+'fscx100'+BS+'fscy100)}'+t+'{'+BS+'fscx100'+BS+'fscy100}')
-                else:chunks.append('{'+BS+'c'+(active if newest else rest)+'}'+t)
+                    chunks.append('{'+BS+'c'+active+at+BS+'fscx100'+BS+'fscy100'+BS+'t(0,110,'+BS+'fscx'+pp+BS+'fscy'+pp+')'+BS+'t(110,230,'+BS+'fscx100'+BS+'fscy100)}'+t+'{'+BS+'fscx100'+BS+'fscy100}')
+                else:chunks.append('{'+BS+'c'+((active+at) if newest else (rest+rt))+'}'+t)
             lead=(BS+'fscx82'+BS+'fscy82'+BS+'t(0,140,'+BS+'fscx100'+BS+'fscy100)'+BS+'fad(80,0)') if (anim=='pop_in_line' and n==0) else ''
             text='{'+pos+lead+'}'+' '.join(chunks)
-            ass.append(f'Dialogue: 1,{stamp(a,True)},{stamp(b,True)},Main,,0,0,0,,{text}')
+            ass.append(f'Dialogue: 1,{stamp(a,True)},{stamp(b,True)},{ev_style},,0,0,0,,{text}')
     if hook.strip():
         import hooks
         lines=hook_lines(hook,width=max(12,int(width/(82*scale*.6))))

@@ -1,6 +1,9 @@
 # Changelog
 
 ## 2026-11-24
+- **8 new caption styles** (Karaoke is the new default, TikTok, Pill, One word, Cinematic, Boxed, Outlined, Comic).
+- **English words stay English in Hinglish captions:** police, phone, game, car... are no longer written as pulis, fon, gem (loanword list in loanwords.py, Hindi endings like -wale handled).
+- **Clips can be deleted easily:** trash button on every card, Select mode in My clips, optional source-video delete. Edit clip opens the frame area again. The facecam is found and selected automatically for a fresh video, and your choices are remembered.
 - **Simpler first screen:** one link box and Make clips, a one-line summary of what will happen, and a single Advanced button that opens tabs (Clip options, Frame and layout, Captions, Transcript and review, Style extras, Streams and tools). Nothing was removed.
 - **Activity:** running and waiting jobs with progress, Cancel and Retry, plus 'Add to queue instead'.
 - **Result cards** have a score ring and the reason; status messages show under the link box.
