@@ -123,7 +123,7 @@ def start_export(b,job=None):
  layout=b.get('layout','stack')
  if layout not in {x[0] for x in CATALOG}:raise HTTPException(400,'Choose a valid layout.')
  style=b.get('caption_style',captions.DEFAULT_STYLE)
- if style not in ('gta','bold','clean','hormozi','mrbeast'):raise HTTPException(400,'Choose a valid caption style.')
+ if style not in captions.STYLE_NAMES:raise HTTPException(400,'Choose a valid caption style.')
  if (b.get('caption_anim') or 'highlight') not in ANIMS:raise HTTPException(400,'Choose a valid caption animation.')
  try:
   top=float(b.get('top',.32));position=int(b.get('caption_y',1450))

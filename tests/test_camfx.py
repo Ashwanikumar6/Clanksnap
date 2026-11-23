@@ -209,3 +209,12 @@ class ScorePartsTests(unittest.TestCase):
         self.assertEqual(smart._parts({'hook': 5}), {})
         self.assertEqual(smart._parts('x'), {})
         self.assertEqual(smart._parts({'hook': 'a', 'engagement': 1, 'value': 1, 'shareability': 1}), {})
+
+
+class ExportStyleTests(unittest.TestCase):
+    def test_export_accepts_every_caption_style(self):
+        import re
+        root = Path(__file__).resolve().parents[1]
+        app = (root / 'app.py').read_text(encoding='utf-8')
+        self.assertIn("style not in captions.STYLE_NAMES", app)
+        self.assertNotIn("('gta','bold','clean','hormozi','mrbeast')", app)
