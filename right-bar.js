@@ -70,11 +70,26 @@
     const live = $('rb-live'); if (!live) return;
     try {
       const rt = await get('/runtime');
-      const jobs = (rt.active || []).filter(j => ['running', 'queued', 'starting', 'recording'].includes(j.status));
       let q = [];
       try { q = ((await get('/queue')).jobs || []).filter(j => ['running', 'queued'].includes(j.status)); } catch (e) { /* PC only */ }
-      const rows = jobs.map(j => ({ t: 'Clip job', s: j.stage || j.status })).concat(q.map(j => ({ t: String(j.url || 'Queued link').replace(/^https?:\/\/(www\.)?/, '').slice(0, 40), s: j.status === 'running' ? ((j.result && j.result.stage) || 'Running') : 'Waiting in the queue' })));
-      live.innerHTML = rows.length ? rows.map(r => '<div class="rb-row2"><b>' + esc(r.t) + '</b><small>' + esc(String(r.s).slice(0, 90)) + '</small></div>').join('') : '<small class="rb-empty">Nothing is being made right now.</small>';
+      const child = new Set(q.map(j => j.child).filter(Boolean));
+      const rows = [];
+      const prog = async id => { try { const r = await fetch('/make/' + id); if (r.ok) { const j = await r.json(); return { p: j.progress, title: j.title || '', show: true }; } const r2 = await fetch('/status/' + id); if (r2.ok) { const j = await r2.json(); return { p: j.progress, title: j.title || '', show: !!j.url }; } } catch (e) { /* ignore */ } return {}; };
+      for (const a of (rt.active || [])) {
+        if (!['running', 'queued', 'starting', 'recording'].includes(a.status) || child.has(a.id)) continue;
+        const pr = await prog(a.id); if (pr.show === false) continue;       // internal render step of a bigger job
+        rows.push({ t: pr.title || 'Making clips', s: a.stage || a.status, p: pr.p });
+      }
+      for (const j of q) {
+        const url = (j.payload && (j.payload.url || j.payload.id)) || j.url || 'Queued link';
+        if (j.status === 'running') { const pr = j.child ? await prog(j.child) : {}; rows.push({ t: String(url).replace(/^https?:\/\/(www\.)?/, '').slice(0, 44), s: (j.result && j.result.stage) || 'Running', p: pr.p }); }
+        else rows.push({ t: String(url).replace(/^https?:\/\/(www\.)?/, '').slice(0, 44), s: 'Waiting for its turn in the queue', wait: true });
+      }
+      live.innerHTML = rows.length ? rows.map(r => {
+        const pct = typeof r.p === 'number' ? Math.max(2, Math.min(100, Math.round(r.p * 100))) : null;
+        return '<div class="rb-row2"><div class="rb-top"><b>' + esc(r.t) + '</b>' + (r.wait ? '<span class="rb-pct">waiting</span>' : '<span class="rb-pct">' + (pct == null ? '…' : pct + '%') + '</span>') + '</div>' +
+          (r.wait ? '' : '<div class="rb-bar"><i' + (pct == null ? ' class="indet"' : ' style="width:' + pct + '%"') + '></i></div>') + '<small>' + esc(String(r.s).slice(0, 120)) + '</small></div>';
+      }).join('') : '<small class="rb-empty">Nothing is being made right now.</small>';
     } catch (e) { live.innerHTML = '<small class="rb-empty">Activity is unavailable.</small>'; }
   }
 
@@ -85,8 +100,9 @@
     bar.innerHTML = '<button type="button" id="rb-toggle" class="rb-toggle" aria-label="Open or close the live preview">▶</button>' +
       '<div class="rb-inner"><div class="rb-head"><b>Live Preview (9:16)</b><span class="rb-badge">● Real-time style preview</span></div>' +
       '<div class="rb-stage"><canvas id="rb-canvas" width="360" height="640"></canvas><div class="rb-empty-note" id="rb-empty">Paste a link and press Get preview to see your clip here.</div></div>' +
+      '<button type="button" class="rb-make" id="rb-make" style="background:linear-gradient(90deg,#35e0d0,#c8f94b)!important;color:#10101a!important">⚡ Make clips</button><div id="rb-live"></div>' +
       '<div class="rb-tabs" id="rb-tabs">' + [['caption', 'Aa Caption'], ['layout', '▦ Layout'], ['heading', '✦ Heading'], ['output', '⚙ Output']].map(([k, n]) => '<button type="button" data-tab="' + k + '">' + n + '</button>').join('') + '</div>' +
-      '<div class="rb-pane" id="rb-pane"></div><h3>Now making</h3><div id="rb-live"></div></div>';
+      '<div class="rb-pane" id="rb-pane"></div></div>';
     document.body.append(bar);
     try { open = localStorage.getItem('neon-rightbar') !== '0' && window.innerWidth > 1280; } catch (e) { /* ignore */ }
     const set = on => { document.body.classList.toggle('rb-open', on); $('rb-toggle').textContent = on ? '▶' : '◀'; try { localStorage.setItem('neon-rightbar', on ? '1' : '0'); } catch (e) { /* ignore */ } };
@@ -94,6 +110,7 @@
     $('rb-toggle').onclick = () => set(!document.body.classList.contains('rb-open'));
     bar.addEventListener('click', e => {
       const t = e.target; let b;
+      if (t.closest('#rb-make')) { const m = $('make'); if (m) { m.click(); setTimeout(refresh, 800); } return; }
       if ((b = t.closest('[data-tab]'))) { tab = b.dataset.tab; drawPane(); return; }
       if ((b = t.closest('[data-style]'))) { press('.caption-choice[data-style="' + b.dataset.style + '"]'); }
       else if ((b = t.closest('[data-layout]'))) { press('.choice[data-layout="' + b.dataset.layout + '"]'); }
@@ -107,7 +124,7 @@
     });
     bar.addEventListener('change', e => { const cb = e.target.closest('[data-cb]'); if (cb) { setField(cb.dataset.cb, cb.checked); } });
     bar.addEventListener('input', e => { if (e.target.id === 'rb-hook') setField('hook', e.target.value); });
-    drawPane(); mirror(); refresh(); setInterval(refresh, 4000);
+    drawPane(); mirror(); refresh(); setInterval(refresh, 2000);
     setInterval(() => { const e = $('rb-empty'); if (e) { try { e.style.display = (typeof sourceW !== 'undefined' && sourceW) ? 'none' : ''; } catch (x) { /* ignore */ } } }, 700);
   }
   if (document.readyState === 'complete') setTimeout(init, 600); else window.addEventListener('load', () => setTimeout(init, 600));

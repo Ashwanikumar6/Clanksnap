@@ -32,3 +32,11 @@ body.rb-open .right-bar{transform:none}
 .rb-row2 small,.rb-empty{color:#9a9aa8}
 @media(max-width:1280px){.right-bar{width:min(92vw,360px)}}
 .rb-inner>*{flex-shrink:0}
+.rb-make{border:0;border-radius:14px;padding:12px;font-weight:800;font-size:14px;cursor:pointer;color:#10101a;background:linear-gradient(90deg,#35e0d0,#c8f94b)}
+.rb-make:hover{filter:brightness(1.1)}
+.rb-top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.rb-pct{font-weight:800;color:#ff8fb0;font-size:13px}
+.rb-bar{height:8px;border-radius:99px;background:#26262f;overflow:hidden}
+.rb-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#ff3d6e,#a66bff);transition:width .5s}
+.rb-bar i.indet{width:40%;animation:rbslide 1.3s ease-in-out infinite}
+@keyframes rbslide{0%{margin-left:-40%}100%{margin-left:100%}}
