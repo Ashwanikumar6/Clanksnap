@@ -70,7 +70,7 @@ def cover_image(id:str):
  return FileResponse(path,media_type='image/jpeg')
 @app.get('/assets/{name}')
 def assets(name:str):
- if name not in ('app.js','style.css','extras.js','transcripts.js','vision.js','report.js'):raise HTTPException(404)
+ if name not in ('app.js','style.css','extras.js','transcripts.js','vision.js','report.js','studio.js'):raise HTTPException(404)
  return FileResponse(ROOT/name)
 @app.get('/text/{id}/{kind}')
 def text_file(id:str,kind:str):
@@ -116,6 +116,9 @@ def caption_job(b:dict):
 
 @app.post('/export')
 def export(b:dict):
+ return start_export(b)
+
+def start_export(b,job=None):
  id,src,m,start,end=source_range(b)
  layout=b.get('layout','stack')
  if layout not in {x[0] for x in CATALOG}:raise HTTPException(400,'Choose a valid layout.')
@@ -148,7 +151,7 @@ def export(b:dict):
  except (ValueError,TypeError,OverflowError) as e:raise HTTPException(400,str(e))
  try:plan=styling.plan(b,DATA)
  except ValueError as e:raise HTTPException(400,str(e))
- job=uuid.uuid4().hex;out=DATA/(job+'.mp4');state[job]={'status':'running','message':'Preparing export'}
+ job=job or uuid.uuid4().hex;out=DATA/(job+'.mp4');state[job]={'status':'running','message':'Preparing export'}
  def work():
   try:
    words=[]
@@ -235,6 +238,9 @@ def ai_found(moments,yt_words,duration):
 
 @app.post('/make')
 def make(b:dict):
+ return start_make(b)
+
+def start_make(b, previous=None):
  """One click. Short video: download, smart highlights, export. Long video (PeakCut-style): download AUDIO only, pick moments from
  audio + transcript, then fetch just those video sections. Clips stream into state[job]['clips']."""
  url,src0=app.neon['new_source'](b);save=app.neon['save']
@@ -260,12 +266,30 @@ def make(b:dict):
  from translit import to_hinglish
  top_h=b.get('top');cam=b.get('cam') or {'x':0,'y':0,'w':.25,'h':.3};game=b.get('game') or {'x':.25,'y':0,'w':.75,'h':1}
  job=uuid.uuid4().hex;save(job,{'id':job,'status':'running','stage':'Starting','progress':0,'clips':[],'source':{'url':url}})
+ checkpoint_path=DATA/(job+'.resume.json')
+ checkpoint=dict(previous or {},request=b)
+ def persist():
+  staged=checkpoint_path.with_suffix('.tmp')
+  staged.write_text(json.dumps(checkpoint),encoding='utf-8')
+  staged.replace(checkpoint_path)
+ persist()
  def work():
   began=time.monotonic()
   try:
    from smart import find
    fast=False;title='';yt_words=None;video_lang=''
-   if url:
+   cached=previous and previous.get('plan')
+   completed=previous.get('completed',{}) if cached else {}
+   if cached:
+    fast=cached['fast'];title=cached['title'];video_lang=cached['language']
+    found=cached['found'];engine=cached['engine'];sid=cached['sid'];p=DATA/cached['media']
+    uploader=cached['uploader']
+    save(job,{'engine':engine,'stage':'Resuming saved moments','candidates':len(found)})
+   elif 'source_info' in checkpoint:
+    src_info=checkpoint['source_info']
+    fast=src_info['fast'];video_lang=src_info['language'];title=src_info['title'];yt_words=src_info['words']
+    info={'uploader':src_info['uploader']}
+   elif url:
     save(job,{'stage':'Reading video info','progress':.01})
     with _yt({'skip_download':True}) as y:info=y.extract_info(url,download=False)
     if info.get('is_live') or info.get('live_status') in ('is_live','is_upcoming'):
@@ -277,7 +301,9 @@ def make(b:dict):
      from captions_yt import from_info
      yt_words=from_info(info);save(job,{'transcript_source':'YouTube captions' if yt_words else 'speech model'})
     except Exception:yt_words=None
-   if not url and src0:
+    checkpoint['source_info']={'fast':fast,'language':video_lang,'title':title,'words':yt_words,'uploader':info.get('channel') or info.get('uploader') or ''}
+    persist()
+   if not cached and not url and src0:
     try:
      import transcripts
      yt_words=transcripts.cached_source(DATA,src0,language)
@@ -288,6 +314,7 @@ def make(b:dict):
    import vision
    from concurrent.futures import ThreadPoolExecutor as _TP
    W=curation.profile_weights(learn.load_weights(DATA),profile)
+   performance=social.duration_preferences(DATA)
    def lowres_section(u,c):
     """A tiny 144p copy of just this candidate, only for looking at the action (motion, flashes, light strobes)."""
     from yt_dlp.utils import download_range_func
@@ -329,7 +356,7 @@ def make(b:dict):
        old=c['features'].get('llm');c['features']['llm']=judged['score']/10 if old is None else .7*old+.3*judged['score']/10
        if focus_brief:c['focus_match']=judged['focus_match']
       except Exception as error:c['visual_error']=str(error)[-160:]
-     c['rank']=curation.focus_rank(learn.score(c['features'],W),c.get('focus_match'));c['score']=round(c['rank']*100)
+     c['rank']=max(0,min(1,curation.focus_rank(learn.score(c['features'],W),c.get('focus_match'))+performance.get(int((c['end']-c['start'])//15),0)));c['score']=round(c['rank']*100)
      cues=[n for n,k,t in (('shouting','shout',.6),('loud jump','loud',.6),('exclamations','words',.5),('fast motion','motion',.7),('explosion/flash','flash',.5),('police-light flicker','strobe',.5)) if (c['features'].get(k) or 0)>=t]
      c['reason']=(('Cues: '+', '.join(cues)) if cues else 'Steady energy')+(f" · AI {c['llm']:g}/10" if c.get('llm') else '')
      if c.get('visual_review'):c['reason']+=' · 3 visual frames reviewed'
@@ -338,21 +365,28 @@ def make(b:dict):
     top.sort(key=lambda c:-c['rank'])
     return top[:count] if moments else curation.select(top,count,profile)
    sections=None
-   if fast:
+   if not cached and fast:
     def hook(d):
      t=d.get('total_bytes') or d.get('total_bytes_estimate')
      if t and d.get('status')=='downloading':save(job,{'stage':f"Downloading audio {d['downloaded_bytes']/1048576:.0f}/{t/1048576:.0f} MB",'progress':.02+.1*d['downloaded_bytes']/t})
-    last_error=None
-    for audio_format in ('ba[ext=m4a]/ba/worst','ba/b','worst'):
-     for leftover in DATA.glob(job+'.audio.*'):leftover.unlink(missing_ok=True)       # an empty or partial file from the last try
-     try:
-      with _yt({'format':audio_format,'outtmpl':str(DATA/(job+'.audio.%(ext)s')),'progress_hooks':[hook]}) as y:y.download([url])
-      got=[f for f in DATA.glob(job+'.audio.*') if f.suffix not in ('.part','.ytdl') and f.stat().st_size>1024]
-      if got:last_error=None;break
-      last_error=RuntimeError('The downloaded audio file is empty.')
-     except Exception as e:last_error=e
-    if last_error:raise last_error
-    p=next(f for f in DATA.glob(job+'.audio.*') if f.suffix not in ('.part','.ytdl'));duration=_dur(p);sid=job
+    audio=checkpoint.get('audio')
+    if audio and (DATA/audio).is_file():
+     p=DATA/audio
+    else:
+     last_error=None
+     for audio_format in ('ba[ext=m4a]/ba/worst','ba/b','worst'):
+      for leftover in DATA.glob(job+'.audio.*'):leftover.unlink(missing_ok=True)       # an empty or partial file from the last try
+      try:
+       with _yt({'format':audio_format,'outtmpl':str(DATA/(job+'.audio.%(ext)s')),'progress_hooks':[hook]}) as y:y.download([url])
+       got=[f for f in DATA.glob(job+'.audio.*') if f.suffix not in ('.part','.ytdl') and f.stat().st_size>1024]
+       if got:last_error=None;break
+       last_error=RuntimeError('The downloaded audio file is empty.')
+      except Exception as e:last_error=e
+     if last_error:raise last_error
+     p=next(f for f in DATA.glob(job+'.audio.*') if f.suffix not in ('.part','.ytdl'))
+     checkpoint['audio']=p.name
+     persist()
+    duration=_dur(p);sid=job
     save(job,{'meta':{'duration':duration},'stage':'Finding moments in audio','progress':.12})
     beat={'live':True,'seen':time.monotonic()}
     def scan_report(f,m):beat['seen']=time.monotonic();save(job,{'stage':m,'progress':.12+.4*f})
@@ -366,8 +400,34 @@ def make(b:dict):
     finally:beat['live']=False
     found=choose(found,lambda c:lowres_section(url,c))
     if not found:
+     checkpoint_path.unlink(missing_ok=True)
      save(job,{'status':'done','stage':'No moments matched the transcript filters. Broaden the focus or required phrases.','progress':1,'clips':[],'elapsed_seconds':round(time.monotonic()-began,2)});return
     save(job,{'engine':engine+' (audio-first)','stage':'Fetching only the chosen sections','progress':.58,'candidates':len(found)})
+   elif not cached:
+    if url:
+     save(job,{'stage':'Downloading source ('+quality_label(src_h)+')','progress':.02});sid,p=app.neon['download'](url,job,src_h)
+    else:sid,p=src0.stem,src0
+    meta=probe(p);duration=meta['duration'];save(job,{'source_id':sid,'meta':meta,'stage':'Finding moments','progress':.1})
+    found,engine=ai_found(moments,yt_words,duration) if moments else find(p,duration,count,max_len,lambda f,m:save(job,{'stage':m,'progress':.1+.5*f}),language,DATA,min_len,True,yt_words,mode=='deep',W,False,profile,focus_brief,include_phrases,exclude_phrases)
+    found=choose(found,lambda c:(p,c['start']))
+    if not found:
+     checkpoint_path.unlink(missing_ok=True)
+     save(job,{'status':'done','stage':'No moments matched the transcript filters. Broaden the focus or required phrases.','progress':1,'clips':[],'elapsed_seconds':round(time.monotonic()-began,2)});return
+    save(job,{'engine':engine,'stage':'Rendering clips','progress':.6,'candidates':len(found)})
+   done=[];cam_use,game_use,cam_checked,layout_use=cam,game,not b.get('cam_auto',True),layout       # facecam search is on unless switched off
+   if not cached:
+    uploader=str((info.get('channel') or info.get('uploader') or '')) if url else ''
+   checkpoint.update({'request':b,'plan':{'fast':fast,'title':title,'language':video_lang,'found':found,'engine':engine,
+                                  'sid':sid,'media':p.name,'uploader':uploader},'completed':completed})
+   if cached and previous.get('framing'):
+    cam_use,game_use,layout_use=previous['framing']
+    cam_checked=True
+    checkpoint['framing']=previous['framing']
+   persist()
+   def finished(index):
+    item=completed.get(str(index))
+    return item and (DATA/(item['file']+'.mp4')).is_file() and (DATA/(item['file']+'.json')).is_file()
+   if fast:
     from concurrent.futures import ThreadPoolExecutor
     from yt_dlp.utils import download_range_func
     def section(i,c):
@@ -380,20 +440,11 @@ def make(b:dict):
       except Exception:
        if attempt==2:raise
        time.sleep(3*(attempt+1))
-    pool=ThreadPoolExecutor(max_workers=3);sections=[pool.submit(section,i,c) for i,c in enumerate(found)]
-   else:
-    if url:
-     save(job,{'stage':'Downloading source ('+quality_label(src_h)+')','progress':.02});sid,p=app.neon['download'](url,job,src_h)
-    else:sid,p=src0.stem,src0
-    meta=probe(p);duration=meta['duration'];save(job,{'source_id':sid,'meta':meta,'stage':'Finding moments','progress':.1})
-    found,engine=ai_found(moments,yt_words,duration) if moments else find(p,duration,count,max_len,lambda f,m:save(job,{'stage':m,'progress':.1+.5*f}),language,DATA,min_len,True,yt_words,mode=='deep',W,False,profile,focus_brief,include_phrases,exclude_phrases)
-    found=choose(found,lambda c:(p,c['start']))
-    if not found:
-     save(job,{'status':'done','stage':'No moments matched the transcript filters. Broaden the focus or required phrases.','progress':1,'clips':[],'elapsed_seconds':round(time.monotonic()-began,2)});return
-    save(job,{'engine':engine,'stage':'Rendering clips','progress':.6,'candidates':len(found)})
-   done=[];cam_use,game_use,cam_checked,layout_use=cam,game,not b.get('cam_auto',True),layout       # facecam search is on unless switched off
-   uploader=str((info.get('channel') or info.get('uploader') or '')) if url else ''
+    pool=ThreadPoolExecutor(max_workers=3);sections=[pool.submit(section,i,c) if not finished(i) else None for i,c in enumerate(found)]
    for i,c in enumerate(found):
+    if finished(i):
+     done.append(completed[str(i)]);save(job,{'clips':list(done)})
+     continue
     if not moments and c.get('transcript') and b.get('hook_enabled') is not False:
      try:
       import smart
@@ -415,6 +466,9 @@ def make(b:dict):
        layout_use='blur';info['layout_fallback']='blur'          # no webcam found and no boxes drawn: do not show an empty or wrong box
       save(job,{'facecam':info})
      except Exception as e:save(job,{'facecam':{'found':False,'reason':'detection failed: '+str(e)[:80]}})
+    if cam_checked and 'framing' not in checkpoint:
+     checkpoint['framing']=[cam_use,game_use,layout_use]
+     persist()
     lang=language or ('hinglish' if (video_lang.startswith('hi') or c.get('language')=='hi') else None)
     body={'id':sid2,'start':start,'end':end,'layout':layout_use,'top':(top_h if isinstance(top_h,(int,float)) and .2<=top_h<=.5 else .32),'captions':True,'caption_style':style,'language':language,'hook':(' '.join(to_hinglish(w) for w in c.get('hook','').split()) if lang=='hinglish' else c.get('hook','')),
           'aspect':b.get('aspect','vertical'),'resolution':b.get('resolution',1080),'fps':b.get('fps',0),'title':c.get('title',''),'post_caption':c.get('title',''),'batch_id':job,'source_url':url,'cam':cam_use,'game':game_use,'features':c.get('features'),'weights_used':W,'moment_profile':profile,'focus_brief':focus_brief,'focus_match':c.get('focus_match'),'visual_review':c.get('visual_review')}
@@ -433,12 +487,28 @@ def make(b:dict):
      body['words']=ws
      save(job,{'caption_source':'YouTube captions' if url else 'Saved full-source transcript'})
     body['words']=subtitles.clean_words(body.get('words'),end-start)
-    ej=export(body)['job']
-    while state.get(ej,{}).get('status')=='running':time.sleep(.7)
-    r=state[ej]
+    render_ids=checkpoint.setdefault('render_ids',{})
+    ej=render_ids.get(str(i))
+    if not ej:
+     ej=uuid.uuid4().hex;render_ids[str(i)]=ej;persist()
+    output_record=DATA/(ej+'.json')
+    r=None
+    if output_record.is_file() and (DATA/(ej+'.mp4')).is_file():
+     saved=json.loads(output_record.read_text(encoding='utf-8'))
+     if saved.get('result',{}).get('status')=='done':r=saved['result']
+    if r is None:
+     ej=start_export(body,ej)['job']
+     while state.get(ej,{}).get('status')=='running':time.sleep(.7)
+     r=state[ej]
     done.append({'viral':min(99,c['score']),'axes':axes(c.get('features') or {}),'file':ej,'start':c['start'],'end':c['end'],'title':c.get('title') or 'Clip %d'%(i+1),'hook':c.get('hook',''),'score':c['score'],'reason':c.get('reason',''),
                  'error':r.get('error'),'srt':r.get('srt'),'visual_review':c.get('visual_review')})
+    if r.get('status')=='done':
+     completed[str(i)]=done[-1]
+     persist()
     save(job,{'clips':list(done),'stage':f'Rendered {i+1}/{len(found)}','progress':.6+.4*(i+1)/len(found)})
+   if any(item.get('error') for item in done):
+    raise RuntimeError('Some clips failed. Resume this batch to retry the missing clips.')
+   checkpoint_path.unlink(missing_ok=True)
    save(job,{'status':'done','stage':'Clips ready','progress':1,'elapsed_seconds':round(time.monotonic()-began,1)})
   except Exception as e:save(job,{'status':'error','error':str(e)[-600:]})
  threading.Thread(target=work,daemon=True).start();return {'job':job}
@@ -593,10 +663,33 @@ def feedback_summary():
  import learn
  return learn.refit(DATA)
 
+resume_lock=threading.Lock()
+
+@app.post('/make/{job}/resume')
+def resume_make(job:str):
+ with resume_lock:
+  record=state.get(job,{})
+  while record.get('resumed_as') and record['resumed_as'] in state:
+   next_job=record['resumed_as']
+   if state[next_job].get('status')!='error' or not (DATA/(next_job+'.resume.json')).is_file():break
+   job=next_job;record=state[job]
+  successor=record.get('resumed_as')
+  if successor and state.get(successor,{}).get('status') in ('running','done'):
+   return {'job':successor}
+  path=DATA/(job+'.resume.json') if len(job)==32 and job.isalnum() else None
+  if record.get('status')!='error' or not path or not path.is_file():
+   raise HTTPException(409,'No interrupted analysis checkpoint is available.')
+  previous=json.loads(path.read_text(encoding='utf-8'))
+  if previous.get('plan') and not (DATA/previous['plan']['media']).is_file():
+   raise HTTPException(409,'The cached source is missing. Start a new batch.')
+  started=start_make(previous['request'],previous)
+  app.neon['save'](job,{'resumed_as':started['job']})
+  return started
+
 @app.get('/make/{job}')
 def make_status(job:str):
  if job not in state:raise HTTPException(404,'Job unavailable after restart. Please retry.')
- return report.note_job_error(state[job])
+ return {**report.note_job_error(state[job]),'can_resume':state[job].get('status')=='error' and (DATA/(job+'.resume.json')).is_file()}
 @app.get('/status/{id}')
 def status(id:str):return report.note_job_error(state.get(id,{'status':'error','error':'Server restarted. Paste the link again to retry.'}))
 
@@ -696,7 +789,10 @@ import bundles
 bundles.attach(app,DATA)
 
 import jobs
-jobs.attach(app,DATA,state,{'make':make,'export':export,'transcribe':caption_job})
+import social, social_accounts
+social_accounts.attach(app)
+send_post=social.attach(app,DATA,state,probe)
+jobs.attach(app,DATA,state,{'make':make,'export':export,'transcribe':caption_job,'social':send_post},resume_make)
 
 styling.attach(app,DATA)
 import phone
@@ -714,6 +810,11 @@ vision.attach(app,DATA,state,probe)
 
 import creators
 creators.attach(app,DATA,LIVE,lambda target,opts,cid:start_live(target,opts,cid))
+
+import timeline
+timeline.attach(app,DATA,state,probe)
+import studio_plans
+studio_plans.attach(app,DATA,probe)
 
 if __name__=='__main__':
  lan=os.environ.get('NEONCLIPPING_LAN')=='1'      # phone remote: listen on the home network (PIN required, see phone.py); default is this PC only

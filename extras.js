@@ -152,7 +152,7 @@
       try {
         const r = await request('/facecam/detect', { id });
         if (r.found) {
-          rectEdited = true; rect = { cam: { ...r.cam }, game: { ...r.game } };
+          rectEdited = true; $('cam-auto').checked=false; rect = { cam: { ...r.cam }, game: { ...r.game } };
           document.querySelectorAll('[data-preset]').forEach(x => x.classList.remove('on'));
           $('preset-note').textContent = 'Facecam found (' + Math.round(r.confidence * 100) + '% sure, ' + r.method + '). Boxes set; fine-tune in step 03 if needed.';
           const stack = document.querySelector('[data-layout=stack]'); if (stack) stack.click();

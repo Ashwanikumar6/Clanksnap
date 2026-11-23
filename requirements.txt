@@ -10,3 +10,5 @@ streamlink
 pytchat
 av>=11,<19
 static-ffmpeg
+requests>=2.32,<3
+keyring>=25,<26

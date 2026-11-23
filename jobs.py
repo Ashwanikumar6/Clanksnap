@@ -8,8 +8,9 @@ from pathlib import Path
 from fastapi import HTTPException
 
 class JobQueue:
-    def __init__(self,path,handlers,state,autostart=True):
+    def __init__(self,path,handlers,state,autostart=True,resume_make=None):
         self.path=Path(path);self.path.parent.mkdir(parents=True,exist_ok=True)
+        self.resume_make=resume_make
         self.handlers=handlers;self.state=state;self.wake=threading.Event();self.stopped=threading.Event()
         with self.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,kind TEXT,payload TEXT,status TEXT,created REAL,updated REAL,not_before REAL,child TEXT,result TEXT,attempts INTEGER)')
@@ -60,7 +61,7 @@ class JobQueue:
             status='queued'
         else:raise HTTPException(400,'Choose retry or cancel.')
         with self.connect() as db:
-            db.execute('UPDATE jobs SET status=?,child=NULL,result=?,updated=?,not_before=? WHERE id=?',(status,'{}',time.time(),0,job))
+            db.execute('UPDATE jobs SET status=?,result=?,updated=?,not_before=? WHERE id=? AND status=?',(status,'{}',time.time(),0,job,row['status']))
         self.wake.set();return self.get(job)
 
     def claim(self):
@@ -76,7 +77,13 @@ class JobQueue:
         job=self.claim()
         if job is None:return False
         try:
-            started=self.handlers[job['kind']](job['payload']);child=started['job']
+            started=None
+            if job['kind']=='make' and job['child'] and self.resume_make:
+                try:started=self.resume_make(job['child'])
+                except HTTPException as error:
+                    if error.status_code!=409:raise
+            if started is None:started=self.handlers[job['kind']](job['payload'])
+            child=started['job']
             with self.connect() as db:db.execute('UPDATE jobs SET child=? WHERE id=?',(child,job['id']))
             while not self.stopped.is_set():
                 result=dict(self.state.get(child,{}))
@@ -99,8 +106,8 @@ class JobQueue:
         self.stopped.set();self.wake.set()
         if hasattr(self,'worker'):self.worker.join(timeout=2)
 
-def attach(app,data,state,handlers):
-    queue=JobQueue(Path(data)/'jobs.sqlite3',handlers,state)
+def attach(app,data,state,handlers,resume_make=None):
+    queue=JobQueue(Path(data)/'jobs.sqlite3',handlers,state,resume_make=resume_make)
     app.processing_queue=queue
 
     @app.get('/queue')
