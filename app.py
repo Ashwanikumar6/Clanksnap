@@ -500,7 +500,7 @@ def start_make(b, previous=None):
      ej=start_export(body,ej)['job']
      while state.get(ej,{}).get('status')=='running':time.sleep(.7)
      r=state[ej]
-    done.append({'viral':min(99,c['score']),'axes':axes(c.get('features') or {}),'file':ej,'start':c['start'],'end':c['end'],'title':c.get('title') or 'Clip %d'%(i+1),'hook':c.get('hook',''),'score':c['score'],'reason':c.get('reason',''),
+    done.append({'parts':c.get('parts') or {},'viral':min(99,c['score']),'axes':axes(c.get('features') or {}),'file':ej,'start':c['start'],'end':c['end'],'title':c.get('title') or 'Clip %d'%(i+1),'hook':c.get('hook',''),'score':c['score'],'reason':c.get('reason',''),
                  'error':r.get('error'),'srt':r.get('srt'),'visual_review':c.get('visual_review')})
     if r.get('status')=='done':
      completed[str(i)]=done[-1]

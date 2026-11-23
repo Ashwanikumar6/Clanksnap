@@ -200,3 +200,12 @@ class LoanwordTests(unittest.TestCase):
         import loanwords
         for dev, eng in loanwords.LOANWORDS.items():
             self.assertTrue(all(c.isascii() and (c.isalpha() or c == ' ') for c in eng), (dev, eng))
+
+
+class ScorePartsTests(unittest.TestCase):
+    def test_parts_are_scaled_clamped_and_never_invented(self):
+        import smart
+        self.assertEqual(smart._parts({'hook': 10, 'engagement': 8, 'value': 4, 'shareability': 99}), {'hook': 25, 'engagement': 20, 'value': 10, 'shareability': 25})
+        self.assertEqual(smart._parts({'hook': 5}), {})
+        self.assertEqual(smart._parts('x'), {})
+        self.assertEqual(smart._parts({'hook': 'a', 'engagement': 1, 'value': 1, 'shareability': 1}), {})
