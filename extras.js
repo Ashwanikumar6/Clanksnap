@@ -163,6 +163,25 @@
     };
   }
 
+  // ---- automatic facecam: when a fresh video is ready, find the streamer's webcam and select it (nothing to click)
+  async function autoFindCam() {
+    try {
+      if (!id || ($('saved-edit') && !$('saved-edit').hidden)) return;
+      const auto = $('cam-auto');
+      if (!auto || !auto.checked || window.__autoCamFor === id || typeof $('find-cam').onclick !== 'function') return;
+      window.__autoCamFor = id;
+      await $('find-cam').onclick();
+      auto.checked = true;                                     // keep looking automatically for the next video
+      const note = $('preset-note') && $('preset-note').textContent;
+      if (note && typeof status === 'function') status(note);
+    } catch (e) { /* the manual button still works */ }
+  }
+  if (typeof setSource === 'function' && !window.__camHook) {
+    window.__camHook = true;
+    const originalSetSource = setSource;
+    window.setSource = function () { const r = originalSetSource.apply(this, arguments); setTimeout(autoFindCam, 700); return r; };
+  }
+
   // ---- wrap the app.js helpers
   const baseRequest = window.request;
   window.request = function (path, body) {

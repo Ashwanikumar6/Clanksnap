@@ -141,6 +141,49 @@ def apply(data, action, days=30):
     return {'freed': freed, 'deleted': deleted, 'failed': failed}
 
 
+def delete_clips(data, ids, with_sources=False):
+    """Permanently delete finished clips (video, captions, cover, record) and the older versions they replaced.
+    With with_sources, also the source video of those clips when no remaining clip uses it. Unknown ids are ignored."""
+    data = Path(data)
+    clips = clip_records(data)
+    chosen = [i for i in dict.fromkeys(ids or []) if isinstance(i, str) and HEX.match(i) and i in clips]
+    victims = set(chosen)
+    try:
+        from reedit import ancestors
+        for i in chosen:
+            victims.update(a for a in ancestors(data, i) if HEX.match(a))
+    except Exception:       # noqa: BLE001 - older versions are a bonus, never a reason to fail
+        pass
+    freed = removed = 0
+    sources = set()
+    for v in victims:
+        record = clips.get(v) or {}
+        if record.get('source'):
+            sources.add(str(record['source']))
+        for f in clip_files(data, v):
+            size = _size(f)
+            try:
+                f.unlink()
+                freed += size
+            except OSError:
+                pass
+        removed += 1
+    source_count = 0
+    if with_sources:
+        used = {str(r.get('source')) for r in clip_records(data).values() if r.get('source')}
+        for s in sources:
+            p = data / (s + '.mp4')
+            if HEX.match(s) and s not in used and p.exists():
+                size = _size(p)
+                try:
+                    p.unlink()
+                    freed += size
+                    source_count += 1
+                except OSError:
+                    pass
+    return {'deleted': len(chosen), 'removed_files_for': removed, 'sources': source_count, 'freed': freed}
+
+
 def summary(data):
     data = Path(data)
     total = _size(data)
@@ -218,6 +261,15 @@ def attach(app, data, root, busy_fn, restart_fn):
         except ValueError as e:
             raise HTTPException(400, str(e))
         return {'count': len(p['files']), 'bytes': p['bytes'], 'examples': [f.name for f in p['files'][:5]]}
+
+    @app.post('/library/delete')
+    def library_delete(body: dict):
+        if body.get('confirm') is not True:
+            raise HTTPException(400, 'Confirm the delete first.')
+        ids = body.get('ids')
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 500:
+            raise HTTPException(400, 'Choose between 1 and 500 clips.')
+        return delete_clips(data, ids, bool(body.get('with_sources')))
 
     @app.post('/storage/open')
     def storage_open():

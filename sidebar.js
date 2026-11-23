@@ -115,6 +115,7 @@
       }
     });
     line();
+    window.__storageLine = line;
     setInterval(() => { if (!document.hidden && !dlg.open) line(); }, 60000);
 
     // ---- Version card: current version and a one-click update check

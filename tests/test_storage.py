@@ -121,3 +121,44 @@ class SafetyTests(StorageTests):
     def test_a_source_from_today_is_not_called_unused(self):
         put(self.d / ('9' * 32 + '.mp4'), 500)                 # two hours old: still might be open in the editor
         self.assertNotIn('9' * 32 + '.mp4', self.names('orphans'))
+
+
+class DeleteClipTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = Path(self.tmp.name)
+        self.clips = ['1' * 32, '2' * 32]
+        self.src = '3' * 32
+        for c in self.clips:
+            put(self.d / (c + '.mp4'), 4000)
+            put(self.d / (c + '.ass'), 10)
+            (self.d / (c + '.json')).write_text(json.dumps({'source': self.src, 'settings': {}, 'result': {'status': 'done'}}), encoding='utf-8')
+        put(self.d / (self.src + '.mp4'), 9000)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_deletes_only_the_chosen_clip_and_keeps_a_shared_source(self):
+        r = storage.delete_clips(self.d, [self.clips[0]], with_sources=True)
+        self.assertEqual(r['deleted'], 1)
+        self.assertFalse((self.d / (self.clips[0] + '.mp4')).exists())
+        self.assertFalse((self.d / (self.clips[0] + '.ass')).exists())
+        self.assertTrue((self.d / (self.clips[1] + '.mp4')).exists())
+        self.assertTrue((self.d / (self.src + '.mp4')).exists(), 'another clip still uses this source')
+        self.assertEqual(r['sources'], 0)
+
+    def test_source_goes_when_the_last_clip_using_it_goes(self):
+        r = storage.delete_clips(self.d, self.clips, with_sources=True)
+        self.assertEqual(r['deleted'], 2)
+        self.assertEqual(r['sources'], 1)
+        self.assertFalse((self.d / (self.src + '.mp4')).exists())
+        self.assertGreater(r['freed'], 17000)
+
+    def test_source_is_kept_unless_asked(self):
+        storage.delete_clips(self.d, self.clips)
+        self.assertTrue((self.d / (self.src + '.mp4')).exists())
+
+    def test_unknown_or_bad_ids_are_ignored(self):
+        r = storage.delete_clips(self.d, ['../x', 'f' * 32, 5, None, self.src])
+        self.assertEqual(r['deleted'], 0)
+        self.assertTrue((self.d / (self.src + '.mp4')).exists())

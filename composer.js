@@ -137,8 +137,28 @@
       $('composer-summary').innerHTML = '<span>' + parts.map(p => '<b>' + esc(p) + '</b>').join(' · ') + '</span> <button type="button" class="linklike" id="composer-change">Change</button>';
       $('composer-change').onclick = () => { setAdvanced(true); open('options'); };
     }
+    // remember what the person chose last time, so nobody has to open Advanced twice
+    const PREFS = 'neon-prefs';
+    const PREF_IDS = ['srcq', 'count', 'minlen', 'length', 'mode', 'language', 'aspect', 'resolution', 'accurate'];
+    try {
+      const saved = JSON.parse(localStorage.getItem(PREFS) || '{}');
+      PREF_IDS.forEach(i => { if (saved[i] != null && $(i)) $(i).value = saved[i]; });
+      if (saved.captions != null && $('captions')) $('captions').checked = !!saved.captions;
+      if (saved.layout) { const b = document.querySelector('[data-layout="' + saved.layout + '"]'); if (b) b.click(); }
+      if (saved.style) { const b = document.querySelector('.caption-choice[data-style="' + saved.style + '"]'); if (b) b.click(); }
+    } catch (e) { /* first visit or blocked storage */ }
+    function savePrefs() {
+      try {
+        const p = {};
+        PREF_IDS.forEach(i => { if ($(i)) p[i] = $(i).value; });
+        if ($('captions')) p.captions = $('captions').checked;
+        const l = document.querySelector('[data-layout].active'); if (l) p.layout = l.dataset.layout;
+        const s = document.querySelector('.caption-choice.active'); if (s) p.style = s.dataset.style;
+        localStorage.setItem(PREFS, JSON.stringify(p));
+      } catch (e) { /* ignore */ }
+    }
     let timer = null;
-    const later = () => { clearTimeout(timer); timer = setTimeout(summarize, 120); };
+    const later = () => { clearTimeout(timer); timer = setTimeout(() => { summarize(); savePrefs(); }, 120); };
     ['input', 'change', 'click'].forEach(ev => view.addEventListener(ev, later, true));
     summarize();
 
@@ -150,7 +170,13 @@
     if (note) new MutationObserver(() => { if (/bot check|not a bot/i.test(note.textContent || '')) { open('options'); const d = $('yt-login'); if (d) { d.open = true; d.scrollIntoView({ block: 'center' }); } } })
       .observe(note, { childList: true, characterData: true, subtree: true });
     const saved = $('saved-edit');
-    if (saved) new MutationObserver(() => { if (!saved.hidden) saved.scrollIntoView({ behavior: 'smooth', block: 'start' }); }).observe(saved, { attributes: true, attributeFilter: ['hidden'] });
+    // editing a saved clip needs the player and the frame area (inside the Frame tab), so open that tab and bring it into view
+    if (saved) new MutationObserver(() => {
+      if (saved.hidden) return;
+      open('frame');
+      const target = $('source') || saved;
+      setTimeout(() => (target.closest('.pane') || saved).scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+    }).observe(saved, { attributes: true, attributeFilter: ['hidden'] });
 
     // score ring on every result card
     const grid = $('make-grid');
