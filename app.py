@@ -9,11 +9,12 @@ import report    # local error log + "Report a problem"
 import encoders  # picks NVENC / VideoToolbox / x264 by what works on this computer
 import languages
 import yt_dlp
-from standalone import attach, source_height, source_format, quality_label
+from standalone import attach, source_height, source_format, quality_label, LONG_SECONDS
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 import uvicorn
 import math
+import layouts
 from layouts import CATALOG, geometry, render_graph, text_positions, output_settings
 from captions import transcribe, large_v3, write as write_captions, ANIMS, ascii_fold, collapse_repeats
 import styling
@@ -192,7 +193,8 @@ except ValueError:LIVE_AUTO_HOURS=3.0
 PAD=4.0         # seconds fetched before a section: yt-dlp cuts on a keyframe, export trims exactly
 FAST_OVER=600   # seconds: longer videos go audio-first, short ones are downloaded whole
 def _yt(opts):
- return ytdl.YDL({'noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':20,'retries':3,'fragment_retries':3,'concurrent_fragment_downloads':6,**opts})
+ return ytdl.YDL({'noplaylist':True,'quiet':True,'no_warnings':True,'socket_timeout':20,'retries':3,'fragment_retries':3,'concurrent_fragment_downloads':6,
+                  'external_downloader_args':{'ffmpeg_i':['-rw_timeout','30000000']},**opts})      # FFmpeg gives up after 30 s without data instead of hanging
 def _dur(p):
  r=subprocess.run(['ffprobe','-v','error','-show_entries','format=duration','-of','csv=p=0',str(p)],capture_output=True,text=True,check=True);return float(r.stdout.strip())
 
@@ -269,7 +271,8 @@ def make(b:dict):
     if info.get('is_live') or info.get('live_status') in ('is_live','is_upcoming'):
      raise RuntimeError('This stream is live right now. Use the Live clipping panel to clip it while it is on, or wait until it ends and use Make clips on the finished video.')
     video_lang=str(info.get('language') or '')
-    fast=float(info.get('duration') or 0)>FAST_OVER and not info.get('is_live') and mode=='fast';title=info.get('title') or ''
+    fast=float(info.get('duration') or 0)>FAST_OVER and not info.get('is_live') and (mode=='fast' or float(info.get('duration') or 0)>LONG_SECONDS);      # over 2 h: always audio-first, the whole file is never downloaded
+    title=info.get('title') or ''
     try:
      from captions_yt import from_info
      yt_words=from_info(info);save(job,{'transcript_source':'YouTube captions' if yt_words else 'speech model'})
@@ -339,7 +342,16 @@ def make(b:dict):
     def hook(d):
      t=d.get('total_bytes') or d.get('total_bytes_estimate')
      if t and d.get('status')=='downloading':save(job,{'stage':f"Downloading audio {d['downloaded_bytes']/1048576:.0f}/{t/1048576:.0f} MB",'progress':.02+.1*d['downloaded_bytes']/t})
-    with _yt({'format':'ba[ext=m4a]/ba/worst','outtmpl':str(DATA/(job+'.audio.%(ext)s')),'progress_hooks':[hook]}) as y:y.download([url])
+    last_error=None
+    for audio_format in ('ba[ext=m4a]/ba/worst','ba/b','worst'):
+     for leftover in DATA.glob(job+'.audio.*'):leftover.unlink(missing_ok=True)       # an empty or partial file from the last try
+     try:
+      with _yt({'format':audio_format,'outtmpl':str(DATA/(job+'.audio.%(ext)s')),'progress_hooks':[hook]}) as y:y.download([url])
+      got=[f for f in DATA.glob(job+'.audio.*') if f.suffix not in ('.part','.ytdl') and f.stat().st_size>1024]
+      if got:last_error=None;break
+      last_error=RuntimeError('The downloaded audio file is empty.')
+     except Exception as e:last_error=e
+    if last_error:raise last_error
     p=next(f for f in DATA.glob(job+'.audio.*') if f.suffix not in ('.part','.ytdl'));duration=_dur(p);sid=job
     save(job,{'meta':{'duration':duration},'stage':'Finding moments in audio','progress':.12})
     beat={'live':True,'seen':time.monotonic()}
@@ -362,7 +374,7 @@ def make(b:dict):
      name=uuid.uuid4().hex
      for attempt in range(3):     # an FFmpeg crash on one section (seen on some FFmpeg 9.1 builds) must not lose the whole video
       try:
-       with _yt({'format':source_format(src_h),'merge_output_format':'mp4','outtmpl':str(DATA/(name+'.%(ext)s')),
+       with _yt({'format':(source_format(src_h) if attempt<2 else 'b[height<=720][ext=mp4]/b[height<=720]/b'),'merge_output_format':'mp4','outtmpl':str(DATA/(name+'.%(ext)s')),
                  'download_ranges':download_range_func(None,[(max(0,c['start']-PAD),c['end']+1)])}) as y:y.download([url])
        return name
       except Exception:
@@ -379,7 +391,7 @@ def make(b:dict):
     if not found:
      save(job,{'status':'done','stage':'No moments matched the transcript filters. Broaden the focus or required phrases.','progress':1,'clips':[],'elapsed_seconds':round(time.monotonic()-began,2)});return
     save(job,{'engine':engine,'stage':'Rendering clips','progress':.6,'candidates':len(found)})
-   done=[];cam_use,game_use,cam_checked=cam,game,not b.get('cam_auto')
+   done=[];cam_use,game_use,cam_checked,layout_use=cam,game,not b.get('cam_auto',True),layout       # facecam search is on unless switched off
    uploader=str((info.get('channel') or info.get('uploader') or '')) if url else ''
    for i,c in enumerate(found):
     if not moments and c.get('transcript') and b.get('hook_enabled') is not False:
@@ -397,11 +409,14 @@ def make(b:dict):
      cam_checked=True
      try:
       fc=facecam_detect.detect(DATA/(sid2+'.mp4'))
-      save(job,{'facecam':{k:fc.get(k) for k in ('found','confidence','method','cam','reason')}})
+      info={k:fc.get(k) for k in ('found','confidence','method','cam','reason')}
       if fc.get('found'):cam_use,game_use=fc['cam'],fc['game']
+      elif layouts.needs_cam(layout) and layouts.is_default_cam(cam_use):
+       layout_use='blur';info['layout_fallback']='blur'          # no webcam found and no boxes drawn: do not show an empty or wrong box
+      save(job,{'facecam':info})
      except Exception as e:save(job,{'facecam':{'found':False,'reason':'detection failed: '+str(e)[:80]}})
     lang=language or ('hinglish' if (video_lang.startswith('hi') or c.get('language')=='hi') else None)
-    body={'id':sid2,'start':start,'end':end,'layout':layout,'top':(top_h if isinstance(top_h,(int,float)) and .2<=top_h<=.5 else .32),'captions':True,'caption_style':style,'language':language,'hook':(' '.join(to_hinglish(w) for w in c.get('hook','').split()) if lang=='hinglish' else c.get('hook','')),
+    body={'id':sid2,'start':start,'end':end,'layout':layout_use,'top':(top_h if isinstance(top_h,(int,float)) and .2<=top_h<=.5 else .32),'captions':True,'caption_style':style,'language':language,'hook':(' '.join(to_hinglish(w) for w in c.get('hook','').split()) if lang=='hinglish' else c.get('hook','')),
           'aspect':b.get('aspect','vertical'),'resolution':b.get('resolution',1080),'fps':b.get('fps',0),'title':c.get('title',''),'post_caption':c.get('title',''),'batch_id':job,'source_url':url,'cam':cam_use,'game':game_use,'features':c.get('features'),'weights_used':W,'moment_profile':profile,'focus_brief':focus_brief,'focus_match':c.get('focus_match'),'visual_review':c.get('visual_review')}
     for k in styling.KEYS+brands.KEYS+hooks.KEYS:
      if b.get(k) not in (None,''):body[k]=b[k]

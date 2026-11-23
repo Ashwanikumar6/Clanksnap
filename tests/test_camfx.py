@@ -122,3 +122,43 @@ class CoverTimingTests(unittest.TestCase):
         text = cover.ass_text(['TITLE'], 1080, 1920)
         self.assertIn('9:59:59.00', text)
         self.assertNotIn('0:01:00.00', text)
+
+
+class Round4Tests(unittest.TestCase):
+    def test_layouts_know_when_a_facecam_box_is_needed(self):
+        import layouts
+        self.assertTrue(layouts.needs_cam('stack'))
+        self.assertFalse(layouts.needs_cam('blur'))
+        self.assertFalse(layouts.needs_cam('no-such-layout'))
+        self.assertTrue(layouts.is_default_cam({'x': 0, 'y': 0, 'w': .25, 'h': .3}))
+        self.assertFalse(layouts.is_default_cam({'x': .7, 'y': .05, 'w': .25, 'h': .3}))
+        self.assertFalse(layouts.is_default_cam(None))
+
+    def test_speech_model_download_needs_internet_and_says_so(self):
+        import captions
+        from unittest import mock
+        with mock.patch.object(captions, 'internet_ok', return_value=False), \
+                mock.patch('pathlib.Path.glob', return_value=[]):
+            with self.assertRaises(RuntimeError) as c:
+                captions._turbo_spec()
+        self.assertIn('cannot be reached', str(c.exception))
+
+    def test_hf_timeouts_are_set_and_downloads_have_ffmpeg_timeout(self):
+        import os, compat
+        self.assertEqual(os.environ.get('HF_HUB_DOWNLOAD_TIMEOUT'), '60')
+        text = (Path(__file__).resolve().parents[1] / 'app.py').read_text(encoding='utf-8')
+        self.assertIn("'ffmpeg_i':['-rw_timeout','30000000']", text)
+        std = (Path(__file__).resolve().parents[1] / 'standalone.py').read_text(encoding='utf-8')
+        self.assertIn("'ffmpeg_i':['-rw_timeout','30000000']", std)
+
+
+class WholeVsRangedTests(unittest.TestCase):
+    def test_choice(self):
+        import standalone
+        self.assertTrue(standalone.prefer_whole_download(213, (10, 200)))            # short video
+        self.assertTrue(standalone.prefer_whole_download(2400, (0, 60)))             # under 45 min: whole is faster
+        self.assertTrue(standalone.prefer_whole_download(6000, (0, 3000)))           # part is half of a 100 min video
+        self.assertFalse(standalone.prefer_whole_download(6000, (0, 600)))           # small part of a long video: ranged
+        self.assertFalse(standalone.prefer_whole_download(30000, (0, 7000)))         # beyond the 2 h limit: never whole
+        self.assertFalse(standalone.prefer_whole_download(None, (0, 10)))
+        self.assertFalse(standalone.prefer_whole_download(100, None))

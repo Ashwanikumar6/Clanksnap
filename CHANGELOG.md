@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-11-23
+- **Facecam:** the automatic facecam search is now on by default for Make clips. If no webcam is found and you did not draw boxes, the clip uses the full-frame blur layout instead of an empty or wrong box.
+- **Stuck downloads fixed at the root:** FFmpeg downloads give up after 30 s without data, a part cut from a long video shows live progress, short videos and big parts are downloaded whole (about 8x faster than FFmpeg cutting) and cut afterwards, the speech model download says clearly when there is no internet, an empty audio file is retried with other formats, and a section that FFmpeg cannot fetch falls back to a single-file stream.
+- Videos over 2 hours always use the audio-first mode, even in Deep mode.
+
 ## 2026-11-22
 - **Cloud AI (optional, off by default):** use Groq, OpenRouter, Gemini, OpenAI or LM Studio for moment scoring, titles and hooks on a slow PC. Only clip text is sent; the key stays in `data/llm.json`. Test connection button included.
 - **Heading looks:** new default **Impact** (big bold text, one accent word, pop-in, pink underline), plus **Neon glow**, **Banner bar** and the classic box. Boxes now have rounded corners.

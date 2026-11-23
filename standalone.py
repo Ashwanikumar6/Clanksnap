@@ -30,6 +30,17 @@ class TooLong(RuntimeError):
     def __init__(self,duration,title=''):
         self.duration=duration;self.title=title
         super().__init__(f'This video is {duration/3600:.1f} hours long. Pick the part you need (up to {MAX_RANGE//3600} hours) instead of downloading all of it.')
+def prefer_whole_download(total, window):
+    """A ranged FFmpeg download runs at about real time (measured: 190 s of video in 107 s). A short video, or a part that is most of a
+    video up to 2 hours, is much faster to download whole with the normal downloader and cut afterwards."""
+    try:
+        total = float(total or 0)
+        part = float(window[1]) - float(window[0])
+    except (TypeError, ValueError, IndexError):
+        return False
+    return 0 < total <= LONG_SECONDS and part > 0 and (total <= 2700 or part >= .35 * total)
+
+
 def parse_range(body):
     """(start,end) in seconds from a request body, or None when no part was asked for. Raises ValueError with a readable message."""
     if body.get('start') in (None,'') and body.get('end') in (None,''):return None
@@ -82,6 +93,13 @@ def attach(app,DATA,state,probe):
             # Never pull a whole very long video: ask for the part instead.
             with ytdl.YDL({'quiet':True,'no_warnings':True,'skip_download':True,'socket_timeout':12,'retries':1,'noplaylist':True}) as y:info=y.extract_info(url,download=False)
             if float(info.get('duration') or 0)>LONG_SECONDS:raise TooLong(float(info['duration']),info.get('title',''))
+        ranged=window
+        if window:
+            try:
+                state.get(job,{}).update(stage='Checking video length…',message='Checking video length…')
+                with ytdl.YDL({'quiet':True,'no_warnings':True,'skip_download':True,'socket_timeout':12,'retries':1,'noplaylist':True}) as y:info=y.extract_info(url,download=False)
+                if prefer_whole_download(info.get('duration'),window):ranged=None      # fast whole download, cut afterwards
+            except Exception:pass
         directory=DATA/job;directory.mkdir(exist_ok=True)
         target=DATA/(job+'.mp4')
         def progress(event):
@@ -96,14 +114,15 @@ def attach(app,DATA,state,probe):
         options={'noplaylist':True,'format':source_format(height),
                  'outtmpl':str(directory/'source.%(ext)s'),'merge_output_format':'mp4','socket_timeout':15,'retries':2,'fragment_retries':2,
                  'extractor_retries':1,'progress_hooks':[progress],'quiet':True,'no_warnings':True}
-        if window:
+        options['external_downloader_args']={'ffmpeg_i':['-rw_timeout','30000000']}      # no endless wait on a dead connection
+        if ranged:
             from yt_dlp.utils import download_range_func
             options['download_ranges']=download_range_func(None,[tuple(window)])
-        beat={'t':time.monotonic(),'on':True,'pause':bool(window)}      # a ranged download is done by ffmpeg and reports no progress
+        beat={'t':time.monotonic(),'on':True,'pause':bool(ranged)}      # a ranged download is done by ffmpeg and reports no progress
         _progress=progress
         def progress(event):
             beat['t']=time.monotonic()
-            if not window:beat['pause']=event.get('status')=='finished'      # merging a finished stream is not a stall
+            if not ranged:beat['pause']=event.get('status')=='finished'      # merging a finished stream is not a stall
             _progress(event)
         options['progress_hooks']=[progress]
         def watchdog():
@@ -113,6 +132,16 @@ def attach(app,DATA,state,probe):
                     msg=f'No data received for {int(idle)} s. The network or YouTube may be blocking this download. Wait, try again, or upload the MP4 instead.'
                     state[job].update(message=msg,stage=msg)
         threading.Thread(target=watchdog,daemon=True).start()
+        def growth():
+            started=time.monotonic()
+            while beat['on']:
+                time.sleep(2)
+                try:size=sum(f.stat().st_size for f in directory.iterdir() if f.is_file())
+                except OSError:continue
+                if ranged and size>0 and beat['on'] and job in state:
+                    msg=f'Downloading the part with FFmpeg: {size/1048576:.0f} MB so far, {int(time.monotonic()-started)} s (long parts take a few minutes)'
+                    state[job].update(message=msg,stage=msg,progress=.12)
+        threading.Thread(target=growth,daemon=True).start()
         try:
             with ytdl.YDL(options) as downloader:downloader.download([url])
         finally:beat['on']=False
@@ -126,6 +155,12 @@ def attach(app,DATA,state,probe):
                 target.unlink(missing_ok=True)
                 result=subprocess.run(['ffmpeg','-y','-v','error','-i',str(src),'-c:v','libx264','-preset','fast','-crf','22','-c:a','aac','-movflags','+faststart',str(target)],capture_output=True,text=True,timeout=3600)
                 if result.returncode:raise RuntimeError(result.stderr[-500:])
+        if window and not ranged:
+            full=DATA/(job+'.full.mp4');target.replace(full)
+            state.get(job,{}).update(stage='Cutting your part…',message='Cutting your part…')
+            cut=subprocess.run(['ffmpeg','-y','-v','error','-ss',str(window[0]),'-t',str(window[1]-window[0]),'-i',str(full),'-c','copy','-avoid_negative_ts','make_zero','-movflags','+faststart',str(target)],capture_output=True,text=True,timeout=3600)
+            full.unlink(missing_ok=True)
+            if cut.returncode:raise RuntimeError(cut.stderr[-500:])
         probe(target)
         (DATA/(job+'.request.json')).write_text(json.dumps({'url':url,'height':height,'window':list(window) if window else None}),encoding='utf-8')
         return job,target

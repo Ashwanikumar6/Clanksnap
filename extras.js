@@ -144,7 +144,7 @@
     const none = row.querySelector('[data-preset=none]');
     row.insertBefore(b, none || null);
     const lab = document.createElement('label');
-    lab.className = 'check'; lab.innerHTML = '<input id="cam-auto" type="checkbox"> Find it automatically when I press Make clips';
+    lab.className = 'check'; lab.innerHTML = '<input id="cam-auto" type="checkbox" checked> Find the facecam automatically when I press Make clips';
     row.appendChild(lab);
     b.onclick = async () => {
       if (!id) { $('preset-note').textContent = 'Add a video first (wait for it to finish loading).'; return; }
@@ -180,7 +180,8 @@
       return p.then(r => {
         if (r && r.facecam && $('preset-note')) {
           $('preset-note').textContent = r.facecam.found ? 'Facecam found automatically (' + Math.round((r.facecam.confidence || 0) * 100) + '% sure) and used for every clip.'
-            : 'No facecam found automatically; your selected boxes were used.';
+            : (r.facecam.layout_fallback ? 'No facecam found, so the full-frame blur layout was used (no empty box). Draw the facecam box in step 03 to use a facecam layout.'
+            : 'No facecam found automatically; your selected boxes were used.');
         }
         return r;
       });

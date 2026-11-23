@@ -65,6 +65,15 @@ def collapse_repeats(words,limit=3):
     return out
 
 TURBO_FILES=('model.bin','config.json','tokenizer.json','vocabulary.json')
+def internet_ok(host='huggingface.co',timeout=4):
+    import socket
+    try:
+        socket.create_connection((host,443),timeout=timeout).close()
+        return True
+    except OSError:
+        return False
+
+
 def _turbo_spec():
     """Path of a COMPLETE large-v3-turbo snapshot. A half-finished download (only model.bin) used to fail every job with
     "Cannot load the vocabulary from the model directory", so an incomplete one is repaired (missing small files only)."""
@@ -74,6 +83,8 @@ def _turbo_spec():
         return [p for p in snaps.glob('*') if all((p/f).exists() for f in TURBO_FILES)]
     ok=complete()
     if not ok:
+        if not internet_ok():
+            raise RuntimeError('The speech model is not downloaded yet and huggingface.co cannot be reached. Connect to the internet once so it can download (about 1.6 GB), or use YouTube captions.')
         try:
             from huggingface_hub import snapshot_download
             snapshot_download(repo)

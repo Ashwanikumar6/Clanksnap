@@ -74,6 +74,9 @@ def patch_subprocess():
     subprocess.Popen.__init__ = init
     return True
 
+import os as _os
+_os.environ.setdefault('HF_HUB_DOWNLOAD_TIMEOUT', '60')       # model downloads give up instead of waiting forever
+_os.environ.setdefault('HF_HUB_ETAG_TIMEOUT', '15')
 patch_pyav()
 patch_subprocess()
 ensure_ffmpeg()

@@ -57,6 +57,25 @@ def geometry(name, top=.32, width=1080, height=1920):
             'w':w,'h':size,'circle':name=='circle'}]
     return {'mode':'layers','layers':layers,'width':width,'height':height}
 
+DEFAULT_CAM = {'x': 0, 'y': 0, 'w': .25, 'h': .3}
+
+
+def needs_cam(name, top=.32):
+    """True when the layout draws a separate facecam picture (so an empty facecam box would show gameplay or grey)."""
+    try:
+        spec = geometry(name, top, 1080, 1920)
+    except Exception:
+        return False
+    return any(layer.get('source') == 'cam' for layer in spec.get('layers', []))
+
+
+def is_default_cam(cam):
+    try:
+        return all(abs(float(cam[k]) - DEFAULT_CAM[k]) < .005 for k in DEFAULT_CAM)
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
 def render_graph(name, rects, top=.32, width=1080, height=1920, cam_fx=''):
     spec = geometry(name, top, width, height)
     if spec['mode'] == 'blur':
