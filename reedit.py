@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from fastapi import HTTPException
 
-CHANGE_KEYS = {'aspect','resolution','fps','layout','top','cam','game','caption_style','caption_y','captions','hook','title','post_caption'}
+CHANGE_KEYS = {'voice_volume','aspect','resolution','fps','layout','top','cam','game','caption_style','caption_y','captions','hook','title','post_caption'}
 from styling import KEYS as STYLE_KEYS
 from brands import KEYS as BRAND_KEYS,appearance
 from hooks import KEYS as HOOK_KEYS,settings as hook_settings

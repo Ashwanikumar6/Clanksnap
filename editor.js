@@ -9,6 +9,11 @@
     ['pip_tr', 'Camera top-right'], ['pip_bl', 'Camera bottom-left'], ['pip_br', 'Camera bottom-right'], ['circle', 'Circle camera'], ['side', 'Side by side']];
   const ASPECTS = [['vertical', '9:16 Shorts / Reels'], ['square', '1:1 Square'], ['portrait', '4:5 Feed'], ['threefour', '3:4 Portrait'], ['landscape', '16:9 YouTube']];
   const HOOKS = [['impact', 'Impact'], ['neon', 'Neon glow'], ['banner', 'Banner bar'], ['box', 'Classic box']];
+  const FONTS = ['Arial', 'Arial Black', 'Impact', 'Verdana', 'Georgia', 'Nirmala UI', 'DejaVu Sans', 'Liberation Sans'];
+  const PRESETS = [['shorts', 'YouTube Shorts'], ['tiktok', 'TikTok'], ['reels', 'Instagram Reels']];
+  const PRESET_MAX = { shorts: 180, tiktok: 600, reels: 90 };
+  const presetOn = k => st && st.aspect === 'vertical' && st.resolution === 1080 && st.fps === 30 && st.preset === k;
+  const presetNote = () => { const n = st && st.preset; if (!n) return '9:16 · 1080p · 30 fps · H.264. Pick where you will post.'; const len = st.end - st.start; return PRESETS.find(p => p[0] === n)[1] + ': 9:16 · 1080p · 30 fps. ' + (len > PRESET_MAX[n] ? '⚠ This clip is ' + Math.round(len) + ' s; ' + PRESETS.find(p => p[0] === n)[1] + ' allows ' + PRESET_MAX[n] + ' s.' : 'Length is fine (' + Math.round(len) + ' s of ' + PRESET_MAX[n] + ' s).'); };
   const CAM = [['cam_brightness', 'Brightness', -0.3, 0.3, 0.02, 0], ['cam_contrast', 'Contrast', 0.5, 2, 0.05, 1], ['cam_saturation', 'Colour', 0, 2, 0.05, 1], ['cam_clarity', 'Clarity', 0, 1.5, 0.05, 0]];
 
   async function req(path, body) {
@@ -92,7 +97,7 @@
     const s = info.settings || {};
     st = {
       caption_style: s.caption_style || 'karaoke', captions: s.captions !== false, caption_y: s.caption_y || 1450, layout: s.layout || 'stack', aspect: s.aspect || 'vertical',
-      hook: s.hook || '', hook_enabled: s.hook_enabled !== false, hook_style: s.hook_style || 'impact', fade_inout: !!s.fade_inout,
+      resolution: Number(s.resolution || 1080), fps: Number(s.fps || 30), voice_volume: s.voice_volume == null ? 1 : Number(s.voice_volume), caption_font: s.caption_font || '', caption_size: s.caption_size || '', caption_color: s.caption_color || '', caption_active: s.caption_active || '', caption_outline: s.caption_outline || '', caption_max_words: s.caption_max_words || '', hook: s.hook || '', hook_enabled: s.hook_enabled !== false, hook_style: s.hook_style || 'impact', fade_inout: !!s.fade_inout,
       music_volume: s.music_volume == null ? 0.15 : s.music_volume, start: Number(s.start || 0), end: Number(s.end || 0),
       words: (s.words || []).map(w => ({ start: w.start, end: w.end, text: w.text })),
     };
@@ -130,13 +135,18 @@
       pane.innerHTML = '<label class="ed-chk"><input type="checkbox" data-key="captions"' + (st.captions ? ' checked' : '') + '> Burn in captions</label>' +
         '<div class="ed-tiles">' + STYLES.map(k => '<button type="button" class="ed-tile' + (st.caption_style === k ? ' on' : '') + '" data-style="' + k + '">' + (STYLE_NAMES[k] || k[0].toUpperCase() + k.slice(1)) + '</button>').join('') + '</div>' +
         range('caption_y', 'Caption height', 900, 1700, 10, v => Math.round(100 * v / 1920) + '%') +
+        '<label>Font<select data-key="caption_font"><option value="">Style default</option>' + FONTS.map(f => '<option' + (st.caption_font === f ? ' selected' : '') + '>' + f + '</option>').join('') + '</select></label>' +
+        '<label>Size <b>' + (st.caption_size || 'default') + '</b><input type="range" data-key="caption_size" min="24" max="140" step="2" value="' + (st.caption_size || 58) + '"></label>' +
+        '<div class="ed-colors">' + [['caption_color', 'Text'], ['caption_active', 'Active word'], ['caption_outline', 'Outline']].map(([k, n]) => '<label>' + n + '<input type="color" data-key="' + k + '" value="' + (st[k] || '#FFFFFF') + '"></label>').join('') + '<button type="button" class="mini-btn" id="ed-colors-reset">Default colours</button></div>' +
+        '<label>Words per line <b>' + (st.caption_max_words || 'default') + '</b><input type="range" data-key="caption_max_words" min="1" max="8" step="1" value="' + (st.caption_max_words || 4) + '"></label>' +
         '<label>Opening heading<input type="text" data-key="hook" maxlength="65" value="' + esc(st.hook) + '" placeholder="Opening line"></label>';
     } else if (tab === 'framing') {
       pane.innerHTML = '<label>Shape<select data-key="aspect">' + ASPECTS.map(([k, n]) => '<option value="' + k + '"' + (st.aspect === k ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label>' +
+        '<h4>Export preset</h4><div class="ed-tiles">' + PRESETS.map(([k, n]) => '<button type="button" class="ed-tile' + (presetOn(k) ? ' on' : '') + '" data-preset="' + k + '">' + n + '</button>').join('') + '</div><p class="muted" id="ed-preset-note">' + presetNote() + '</p>' +
         '<div class="ed-tiles">' + LAYOUTS.map(([k, n]) => '<button type="button" class="ed-tile' + (st.layout === k ? ' on' : '') + '" data-layout="' + k + '">' + n + '</button>').join('') + '</div>' +
         '<p class="muted">The camera and gameplay boxes keep what Create clips found. Draw new ones there if the crop is off.</p>';
     } else if (tab === 'audio') {
-      pane.innerHTML = range('music_volume', 'Music volume (only if the clip has music)', 0, 1, 0.05, v => Math.round(v * 100) + '%') +
+      pane.innerHTML = '<label class="ed-chk"><input type="checkbox" id="ed-mute"' + (st.voice_volume === 0 ? ' checked' : '') + '> Mute the clip</label>' + range('voice_volume', 'Volume', 0, 2, 0.05, v => Math.round(v * 100) + '%') + range('music_volume', 'Music volume (only if the clip has music)', 0, 1, 0.05, v => Math.round(v * 100) + '%') +
         '<label class="ed-chk"><input type="checkbox" data-key="fade_inout"' + (st.fade_inout ? ' checked' : '') + '> Fade in and out</label>';
     } else {
       pane.innerHTML = '<label class="ed-chk"><input type="checkbox" data-key="hook_enabled"' + (st.hook_enabled ? ' checked' : '') + '> Show the opening heading</label>' +
@@ -156,6 +166,9 @@
 
   document.addEventListener('click', e => {
     const s = e.target.closest('#ed-pane [data-style]'); if (s && st) commit(() => { st.caption_style = s.dataset.style; });
+    if (e.target.id === 'ed-colors-reset' && st) commit(() => { st.caption_color = st.caption_active = st.caption_outline = ''; });
+    if (e.target.id === 'ed-mute' && st) commit(() => { st.voice_volume = e.target.checked ? 0 : 1; });
+    const pr = e.target.closest('#ed-pane [data-preset]'); if (pr && st) commit(() => { st.aspect = 'vertical'; st.resolution = 1080; st.fps = 30; st.preset = pr.dataset.preset; });
     const l = e.target.closest('#ed-pane [data-layout]'); if (l && st) commit(() => { st.layout = l.dataset.layout; });
   });
 
@@ -213,7 +226,7 @@
     if (!st || !dirty()) return;
     const scope = (document.querySelector('input[name=ed-scope]:checked') || {}).value || 'one';
     const changes = {};
-    ['caption_style', 'captions', 'caption_y', 'layout', 'aspect', 'hook', 'hook_enabled', 'hook_style', 'fade_inout', 'music_volume'].concat(CAM.map(c => c[0])).forEach(k => { changes[k] = st[k]; });
+    ['caption_style', 'captions', 'caption_y', 'voice_volume', 'caption_font', 'caption_size', 'caption_color', 'caption_active', 'caption_outline', 'caption_max_words', 'resolution', 'fps', 'layout', 'aspect', 'hook', 'hook_enabled', 'hook_style', 'fade_inout', 'music_volume'].concat(CAM.map(c => c[0])).forEach(k => { changes[k] = st[k]; });
     const body = { file, scope, changes };
     const o = JSON.parse(original);
     const wordsChanged = JSON.stringify(o.words) !== JSON.stringify(st.words);
