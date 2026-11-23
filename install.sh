@@ -36,7 +36,9 @@ TMP="$(mktemp -d)"
 curl -fsSL "$ZIP" -o "$TMP/nc.zip"
 unzip -q "$TMP/nc.zip" -d "$TMP"
 mkdir -p "$DIR/app"
-cp -R "$TMP"/neonclipping-*/. "$DIR/app/"
+SOURCE_DIR="$(find "$TMP" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+[ -n "$SOURCE_DIR" ] || { echo "Could not find extracted project files."; exit 1; }
+cp -R "$SOURCE_DIR/." "$DIR/app/"
 rm -rf "$TMP"
 
 say "Step 3/4 - Installing packages (3-6 minutes)"
