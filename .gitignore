@@ -67,3 +67,18 @@ __pycache__/
 !editor.css
 !capdraw.js
 !library.js
+
+# ClankSnap React frontend
+!frontend/
+frontend/*
+!frontend/.gitignore
+!frontend/.oxlintrc.json
+!frontend/index.html
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/README.md
+!frontend/vite.config.js
+!frontend/src/
+!frontend/src/**
+!frontend/public/
+!frontend/public/**
