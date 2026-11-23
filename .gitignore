@@ -65,4 +65,5 @@ __pycache__/
 !right-bar.css
 !editor.js
 !editor.css
+!capdraw.js
 !library.js
