@@ -128,7 +128,7 @@ def attach(app,data,state,probe,export,save):
         if not source.isalnum() or not (data/(source+'.mp4')).exists():
             raise HTTPException(409,'Original source is unavailable. Restore it to edit this clip without downloading again.')
         return {'file':file,'settings':{**settings,'words':saved_words(data,file,record)},
-                'source':{'id':source,**probe(data/(source+'.mp4'))},'video_clips':len(video_files(file,record)),**metadata(file,record)}
+                'source':{'id':source,**probe(data/(source+'.mp4'))},'origin':(lambda o:{'id':o,**probe(data/(o+'.mp4'))} if o and o.isalnum() and (data/(o+'.mp4')).exists() else None)(settings.get('origin_id')),'video_clips':len(video_files(file,record)),**metadata(file,record)}
 
     @app.post('/clips/reedit')
     def apply(body:dict):
@@ -167,6 +167,19 @@ def attach(app,data,state,probe,export,save):
             if not source.isalnum() or not (data/(source+'.mp4')).exists():
                 raise HTTPException(409,'A saved source is missing; no clips were changed.')
             settings['id']=source
+            if body.get('segments') is not None:
+                import segments
+                if len(files)!=1:raise HTTPException(400,'Cutting pieces works on one clip at a time. Use "Only this clip".')
+                origin=settings.get('origin_id') or source
+                if not origin.isalnum() or not (data/(origin+'.mp4')).exists():raise HTTPException(409,'The original video is missing, so it cannot be cut again.')
+                try:
+                    pieces=segments.validate(body['segments'],probe(data/(origin+'.mp4'))['duration'])
+                    settings['id']=segments.build(data,origin,pieces)
+                except ValueError as error:raise HTTPException(400,str(error))
+                except RuntimeError as error:raise HTTPException(500,str(error))
+                settings['origin_id']=origin;settings['segments']=[{'start':a,'end':b} for a,b in pieces]
+                settings['start']=0.0;settings['end']=round(sum(b-a for a,b in pieces),3)
+                if trim is not None:raise HTTPException(400,'Use either trim or pieces, not both.')
             if trim is not None:
                 have=probe(data/(source+'.mp4'))['duration']
                 if trim_end>have+.05:raise HTTPException(400,f'The saved video is only {have:.1f}s long here, so the end cannot be later than that.')

@@ -16,6 +16,7 @@ import uvicorn
 import math
 import layouts
 from layouts import CATALOG, geometry, render_graph, text_positions, output_settings
+import captions
 from captions import transcribe, large_v3, write as write_captions, ANIMS, ascii_fold, collapse_repeats
 import styling
 import brands

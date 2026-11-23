@@ -33,3 +33,9 @@
 .ed-wordlist button{background:transparent;border:0;color:#9a9aa8;cursor:pointer}
 .ed-note{color:#ffb3c6}
 @media(max-width:1000px){.ed-grid{grid-template-columns:1fr}.ed-list{flex-direction:row;max-height:none;overflow-x:auto}}
+
+.ed-piece{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px}
+.ed-piece input{width:62px}
+.ed-piece b{width:16px}
+.ed-track .ed-sel{opacity:.85;border-right:1px solid #0d0d12}
+.mini-btn.warn{border-color:#ff3d6e}

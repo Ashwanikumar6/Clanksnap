@@ -13,7 +13,7 @@
   const PRESETS = [['shorts', 'YouTube Shorts'], ['tiktok', 'TikTok'], ['reels', 'Instagram Reels']];
   const PRESET_MAX = { shorts: 180, tiktok: 600, reels: 90 };
   const presetOn = k => st && st.aspect === 'vertical' && st.resolution === 1080 && st.fps === 30 && st.preset === k;
-  const presetNote = () => { const n = st && st.preset; if (!n) return '9:16 · 1080p · 30 fps · H.264. Pick where you will post.'; const len = st.end - st.start; return PRESETS.find(p => p[0] === n)[1] + ': 9:16 · 1080p · 30 fps. ' + (len > PRESET_MAX[n] ? '⚠ This clip is ' + Math.round(len) + ' s; ' + PRESETS.find(p => p[0] === n)[1] + ' allows ' + PRESET_MAX[n] + ' s.' : 'Length is fine (' + Math.round(len) + ' s of ' + PRESET_MAX[n] + ' s).'); };
+  const presetNote = () => { const n = st && st.preset; if (!n) return '9:16 · 1080p · 30 fps · H.264. Pick where you will post.'; const len = length(); return PRESETS.find(p => p[0] === n)[1] + ': 9:16 · 1080p · 30 fps. ' + (len > PRESET_MAX[n] ? '⚠ This clip is ' + Math.round(len) + ' s; ' + PRESETS.find(p => p[0] === n)[1] + ' allows ' + PRESET_MAX[n] + ' s.' : 'Length is fine (' + Math.round(len) + ' s of ' + PRESET_MAX[n] + ' s).'); };
   const CAM = [['cam_brightness', 'Brightness', -0.3, 0.3, 0.02, 0], ['cam_contrast', 'Contrast', 0.5, 2, 0.05, 1], ['cam_saturation', 'Colour', 0, 2, 0.05, 1], ['cam_clarity', 'Clarity', 0, 1.5, 0.05, 0]];
 
   async function req(path, body) {
@@ -77,6 +77,25 @@
     });
   }
 
+  // ---- pieces: the clip is an ordered list of ranges of the ORIGINAL video; words are stored with original-video times
+  const plen = ps => ps.reduce((n, p) => n + (p.end - p.start), 0);
+  const length = () => plen(st.pieces);
+  function rel(ps) {
+    const out = []; let off = 0;
+    ps.forEach(p => {
+      st.words.forEach((w, i) => {
+        if (w.b > p.start && w.a < p.end) out.push({ i, start: off + Math.max(w.a, p.start) - p.start, end: off + Math.min(w.b, p.end) - p.start, text: w.text });
+      });
+      off += p.end - p.start;
+    });
+    return out;
+  }
+  function absAt(t) {
+    let off = 0;
+    const ps = JSON.parse(original).pieces;
+    for (const p of ps) { const l = p.end - p.start; if (t < off + l) return p.start + (t - off); off += l; }
+    return ps[ps.length - 1].end;
+  }
   const note = t => { const n = $('ed-note'); if (n) n.textContent = t || ''; };
 
   async function loadList() {
@@ -98,12 +117,28 @@
     st = {
       caption_style: s.caption_style || 'karaoke', captions: s.captions !== false, caption_y: s.caption_y || 1450, layout: s.layout || 'stack', aspect: s.aspect || 'vertical',
       resolution: Number(s.resolution || 1080), fps: Number(s.fps || 30), voice_volume: s.voice_volume == null ? 1 : Number(s.voice_volume), caption_font: s.caption_font || '', caption_size: s.caption_size || '', caption_color: s.caption_color || '', caption_active: s.caption_active || '', caption_outline: s.caption_outline || '', caption_max_words: s.caption_max_words || '', hook: s.hook || '', hook_enabled: s.hook_enabled !== false, hook_style: s.hook_style || 'impact', fade_inout: !!s.fade_inout,
-      music_volume: s.music_volume == null ? 0.15 : s.music_volume, start: Number(s.start || 0), end: Number(s.end || 0),
-      words: (s.words || []).map(w => ({ start: w.start, end: w.end, text: w.text })),
+      music_volume: s.music_volume == null ? 0.15 : s.music_volume,
+      pieces: [], words: [],
     };
+    const base = info.origin || info.source;
+    st.pieces = (s.segments && s.segments.length ? s.segments : [{ start: Number(s.start || 0), end: Number(s.end || 0) }]).map(p => ({ start: Number(p.start), end: Number(p.end) }));
+    const seen = new Set();
+    (s.words || []).forEach(w => {
+      let off = 0;
+      for (const p of st.pieces) {
+        const l = p.end - p.start;
+        if (w.start < off + l) {
+          const a = p.start + (w.start - off), b = p.start + (Math.min(w.end, off + l) - off), k = a.toFixed(2) + w.text;
+          if (!seen.has(k)) { seen.add(k); st.words.push({ a, b, text: w.text }); }
+          break;
+        }
+        off += l;
+      }
+    });
+    st.base = base.duration || plen(st.pieces);
     CAM.forEach(([k, , , , , d]) => { st[k] = s[k] == null ? d : s[k]; });
     original = snap(); undo = []; redo = [];
-    try { const d = localStorage.getItem(draftKey()); if (d && confirm('Restore your unsaved changes for this clip?')) { st = JSON.parse(d); undo = []; } } catch (e) { /* ignore */ }
+    try { const d = localStorage.getItem(draftKey()); if (d) { const dd = JSON.parse(d); if (dd && Array.isArray(dd.pieces) && Array.isArray(dd.words) && confirm('Restore your unsaved changes for this clip?')) { st = dd; undo = []; } else if (!dd || !Array.isArray(dd.pieces)) localStorage.removeItem(draftKey()); } } catch (e) { /* ignore */ }
     const v = $('ed-video');
     v.src = '/media/' + file;
     $('ed-count').textContent = info.video_clips > 1 ? '(' + info.video_clips + ')' : '';
@@ -117,10 +152,11 @@
     const t = $('ed-video').currentTime;
     const cap = $('ed-cap');
     if (!st.captions) { cap.textContent = ''; return; }
-    const idx = st.words.findIndex(w => t >= w.start && t < w.end);
+    const rw = rel(JSON.parse(original).pieces);
+    const idx = rw.findIndex(w => t >= w.start && t < w.end);
     if (idx < 0) { cap.textContent = ''; return; }
     const from = Math.max(0, idx - (idx % 4));
-    cap.innerHTML = st.words.slice(from, from + 4).map((w, i) => '<span class="' + (from + i === idx ? 'now' : '') + '">' + esc(w.text) + '</span>').join(' ');
+    cap.innerHTML = rw.slice(from, from + 4).map((w, i) => '<span class="' + (from + i === idx ? 'now' : '') + '">' + esc(w.text) + '</span>').join(' ');
     cap.style.top = Math.min(92, Math.max(20, 100 * (st.caption_y || 1450) / 1920)) + '%';
     document.querySelectorAll('#ed-words .w').forEach((n, i) => n.classList.toggle('now', i === idx));
   }
@@ -176,11 +212,12 @@
   function drawTranscript() {
     const box = $('ed-words');
     if (!st) { box.innerHTML = ''; return; }
-    box.innerHTML = st.words.length ? st.words.map((w, i) => '<span class="w" data-i="' + i + '"><button type="button" class="seek" data-seek="' + i + '" title="Jump here">▸</button>' +
-      '<small class="tm">' + w.start.toFixed(1) + '</small><input value="' + esc(w.text) + '" data-word="' + i + '" size="' + Math.max(2, w.text.length) + '" aria-label="Word ' + (i + 1) + '"><button type="button" class="del" data-del="' + i + '" title="Remove this word">✕</button></span>').join('') : '<p class="muted">This clip has no saved transcript.</p>';
+    const rw = rel(st.pieces);
+    box.innerHTML = rw.length ? rw.map(w => '<span class="w" data-i="' + w.i + '"><button type="button" class="seek" data-seek="' + w.start.toFixed(2) + '" title="Jump here">▸</button>' +
+      '<small class="tm">' + w.start.toFixed(1) + '</small><input value="' + esc(w.text) + '" data-word="' + w.i + '" size="' + Math.max(2, w.text.length) + '" aria-label="Word"><button type="button" class="del" data-del="' + w.i + '" title="Remove this word">✕</button></span>').join('') : '<p class="muted">This clip has no saved transcript.</p>';
   }
   document.addEventListener('click', e => {
-    const k = e.target.closest('[data-seek]'); if (k && st) { $('ed-video').currentTime = st.words[Number(k.dataset.seek)].start; return; }
+    const k = e.target.closest('[data-seek]'); if (k && st) { $('ed-video').currentTime = Number(k.dataset.seek); return; }
     const d = e.target.closest('[data-del]'); if (d && st) commit(() => { st.words.splice(Number(d.dataset.del), 1); });
   });
   document.addEventListener('change', e => {
@@ -196,24 +233,46 @@
   function drawTimeline() {
     const box = $('ed-time');
     if (!st || !info) { box.innerHTML = ''; return; }
-    const total = Math.max(info.source.duration || st.end, st.end), len = st.end - st.start;
-    const pct = v => (100 * v / total).toFixed(2) + '%';
-    box.innerHTML = '<div class="ed-track"><i class="ed-sel" style="left:' + pct(st.start) + ';width:' + (100 * len / total).toFixed(2) + '%"></i></div>' +
-      '<div class="ed-trim"><label>Start <input type="number" step="0.1" min="0" max="' + total.toFixed(1) + '" data-trim="start" value="' + st.start.toFixed(1) + '"> s</label>' +
-      '<label>End <input type="number" step="0.1" min="0" max="' + total.toFixed(1) + '" data-trim="end" value="' + st.end.toFixed(1) + '"> s</label><span class="muted">Length ' + len.toFixed(1) + ' s of ' + total.toFixed(0) + ' s</span></div>';
+    const total = Math.max(st.base, ...st.pieces.map(p => p.end)), pct = v => (100 * v / total).toFixed(2) + '%';
+    box.innerHTML = '<div class="ed-track">' + st.pieces.map((p, i) => '<i class="ed-sel" title="Piece ' + (i + 1) + '" style="left:' + pct(p.start) + ';width:' + pct(p.end - p.start) + '"></i>').join('') + '</div>' +
+      '<div class="ed-bar"><button type="button" class="mini-btn" id="ed-split">✂ Split at playhead</button><span class="muted">Total ' + length().toFixed(1) + ' s · ' + st.pieces.length + ' piece' + (st.pieces.length > 1 ? 's' : '') + ' · the preview shows the last export until you export</span></div>' +
+      st.pieces.map((p, i) => '<div class="ed-piece"><b>' + (i + 1) + '</b>' +
+        '<label>from <input type="number" step="0.1" min="0" max="' + total.toFixed(1) + '" data-piece="' + i + '" data-edge="start" value="' + p.start.toFixed(1) + '"></label>' +
+        '<label>to <input type="number" step="0.1" min="0" max="' + total.toFixed(1) + '" data-piece="' + i + '" data-edge="end" value="' + p.end.toFixed(1) + '"></label>' +
+        '<button type="button" class="mini-btn" data-pa="up" data-i="' + i + '" title="Move earlier"' + (i ? '' : ' disabled') + '>↑</button>' +
+        '<button type="button" class="mini-btn" data-pa="down" data-i="' + i + '" title="Move later"' + (i < st.pieces.length - 1 ? '' : ' disabled') + '>↓</button>' +
+        '<button type="button" class="mini-btn" data-pa="dup" data-i="' + i + '" title="Duplicate this piece">⧉</button>' +
+        '<button type="button" class="mini-btn warn" data-pa="drop" data-i="' + i + '" title="Remove this piece"' + (st.pieces.length > 1 ? '' : ' disabled') + '>✕</button></div>').join('');
   }
+  function fits(ps) {
+    const t = plen(ps);
+    if (ps.some(p => !(p.end - p.start >= 0.2) || p.start < 0 || p.end > st.base + 0.05)) { note('Each piece must be at least 0.2 s and inside the saved video (' + st.base.toFixed(0) + ' s).'); return false; }
+    if (t < 3 || t > 180) { note('The clip must be 3 to 180 seconds in total (now ' + t.toFixed(1) + ' s).'); return false; }
+    if (ps.length > 16) { note('At most 16 pieces.'); return false; }
+    note(''); return true;
+  }
+  document.addEventListener('click', e => {
+    if (!st) return;
+    if (e.target.id === 'ed-split') {
+      const t = absAt($('ed-video').currentTime);
+      const i = st.pieces.findIndex(p => t > p.start + 0.1 && t < p.end - 0.1);
+      if (i < 0) { note('Move the playhead inside the clip first (not at a piece edge).'); return; }
+      commit(() => { const p = st.pieces[i]; st.pieces.splice(i, 1, { start: p.start, end: t }, { start: t, end: p.end }); });
+      return;
+    }
+    const b = e.target.closest('[data-pa]'); if (!b) return;
+    const i = Number(b.dataset.i), act = b.dataset.pa, next = st.pieces.map(p => ({ ...p }));
+    if (act === 'up' && i > 0) [next[i - 1], next[i]] = [next[i], next[i - 1]];
+    else if (act === 'down' && i < next.length - 1) [next[i + 1], next[i]] = [next[i], next[i + 1]];
+    else if (act === 'dup') next.splice(i + 1, 0, { ...next[i] });
+    else if (act === 'drop') next.splice(i, 1);
+    else return;
+    if (fits(next)) commit(() => { st.pieces = next; });
+  });
   document.addEventListener('change', e => {
-    const t = e.target.closest && e.target.closest('[data-trim]'); if (!t || !st) return;
-    const v = Math.max(0, Number(t.value) || 0), which = t.dataset.trim;
-    const ns = which === 'start' ? v : st.start, ne = which === 'end' ? v : st.end;
-    if (ne - ns < 3 || ne - ns > 180) { note('A clip must be 3 to 180 seconds long.'); drawTimeline(); return; }
-    if (info.source.duration && ne > info.source.duration + .05) { note('The saved video is only ' + info.source.duration.toFixed(0) + ' s long.'); drawTimeline(); return; }
-    note('');
-    commit(() => {
-      const shift = ns - st.start, length = ne - ns;
-      st.words = st.words.map(w => ({ start: w.start - shift, end: w.end - shift, text: w.text })).filter(w => w.end > 0 && w.start < length).map(w => ({ start: Math.max(0, w.start), end: Math.min(length, w.end), text: w.text }));
-      st.start = ns; st.end = ne;
-    });
+    const t = e.target.closest && e.target.closest('[data-piece]'); if (!t || !st) return;
+    const next = st.pieces.map(p => ({ ...p })); next[Number(t.dataset.piece)][t.dataset.edge] = Math.max(0, Number(t.value) || 0);
+    if (fits(next)) commit(() => { st.pieces = next; }); else drawTimeline();
   });
 
   function updateButtons() {
@@ -229,12 +288,13 @@
     ['caption_style', 'captions', 'caption_y', 'voice_volume', 'caption_font', 'caption_size', 'caption_color', 'caption_active', 'caption_outline', 'caption_max_words', 'resolution', 'fps', 'layout', 'aspect', 'hook', 'hook_enabled', 'hook_style', 'fade_inout', 'music_volume'].concat(CAM.map(c => c[0])).forEach(k => { changes[k] = st[k]; });
     const body = { file, scope, changes };
     const o = JSON.parse(original);
-    const wordsChanged = JSON.stringify(o.words) !== JSON.stringify(st.words);
-    const trimChanged = o.start !== st.start || o.end !== st.end;
-    if (wordsChanged || trimChanged) {
-      if (scope === 'video') { note('Transcript edits and trimming work on one clip at a time. Pick "Only this clip".'); return; }
-      body.words = st.words;
-      if (trimChanged) body.trim = { start: st.start, end: st.end };
+    const cut = JSON.stringify(o.pieces) !== JSON.stringify(st.pieces);
+    const asWords = ps => rel(ps).map(w => ({ start: Number(w.start.toFixed(3)), end: Number(w.end.toFixed(3)), text: w.text }));
+    const wordsChanged = cut || JSON.stringify(o.words) !== JSON.stringify(st.words);
+    if (wordsChanged) {
+      if (scope === 'video') { note('Transcript edits and cutting work on one clip at a time. Pick "Only this clip".'); return; }
+      body.words = asWords(st.pieces);
+      if (cut) body.segments = st.pieces;
     }
     $('ed-export').disabled = true;
     try {

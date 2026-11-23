@@ -13,6 +13,18 @@ SKIP_JSON = ('.state.json', '.request.json', '.words.json', '.resume.json')
 ACTIONS = ('temp', 'recordings', 'orphans', 'sources', 'old_clips')
 
 
+def _used_sources(records):
+    """Source ids that finished clips need: the file they were made from, and the original video of a clip built from several pieces."""
+    used = set()
+    for r in records:
+        if r.get('source'):
+            used.add(str(r['source']))
+        origin = (r.get('settings') or {}).get('origin_id')
+        if origin:
+            used.add(str(origin))
+    return used
+
+
 def _size(path):
     path = Path(path)
     try:
@@ -100,7 +112,7 @@ def plan(data, action, days=30, now=None):
             if d.is_dir() and _old(d, now, 3600):
                 files.append(d)
     elif action in ('orphans', 'sources'):
-        used = {str(r.get('source')) for r in clips.values() if r.get('source')}
+        used = _used_sources(clips.values())
         for f in data.glob('*.mp4'):
             # a video imported today may still be open in the editor, so unused sources must be a day old
             if f.stem in clips or not _old(f, now, 86400 if action == 'orphans' else 3600):
@@ -160,6 +172,8 @@ def delete_clips(data, ids, with_sources=False):
         record = clips.get(v) or {}
         if record.get('source'):
             sources.add(str(record['source']))
+        if (record.get('settings') or {}).get('origin_id'):
+            sources.add(str(record['settings']['origin_id']))
         for f in clip_files(data, v):
             size = _size(f)
             try:
@@ -170,7 +184,7 @@ def delete_clips(data, ids, with_sources=False):
         removed += 1
     source_count = 0
     if with_sources:
-        used = {str(r.get('source')) for r in clip_records(data).values() if r.get('source')}
+        used = _used_sources(clip_records(data).values())
         for s in sources:
             p = data / (s + '.mp4')
             if HEX.match(s) and s not in used and p.exists():

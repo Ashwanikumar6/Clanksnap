@@ -216,5 +216,21 @@ class ExportStyleTests(unittest.TestCase):
         import re
         root = Path(__file__).resolve().parents[1]
         app = (root / 'app.py').read_text(encoding='utf-8')
-        self.assertIn("style not in captions.STYLE_NAMES", app)
+        self.assertIn("STYLE_NAMES:raise", app)
         self.assertNotIn("('gta','bold','clean','hormozi','mrbeast')", app)
+
+
+class AppImportsTests(unittest.TestCase):
+    def test_every_project_module_used_in_app_py_is_imported(self):
+        import ast
+        root = Path(__file__).resolve().parents[1]
+        tree = ast.parse((root / 'app.py').read_text(encoding='utf-8'))
+        modules = {p.stem for p in root.glob('*.py')}
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported |= {a.asname or a.name.split('.')[0] for a in node.names}
+            elif isinstance(node, ast.ImportFrom):
+                imported |= {a.asname or a.name for a in node.names}
+        used = {n.value.id for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)}
+        self.assertEqual({m for m in used if m in modules and m != 'app'} - imported, set())
