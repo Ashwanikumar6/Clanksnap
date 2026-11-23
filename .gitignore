@@ -63,4 +63,6 @@ __pycache__/
 !sidebar.js
 !right-bar.js
 !right-bar.css
+!editor.js
+!editor.css
 !library.js
