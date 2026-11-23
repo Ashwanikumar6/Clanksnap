@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-24
+- **Simpler first screen:** one link box and Make clips, a one-line summary of what will happen, and a single Advanced button that opens tabs (Clip options, Frame and layout, Captions, Transcript and review, Style extras, Streams and tools). Nothing was removed.
+- **Activity:** running and waiting jobs with progress, Cancel and Retry, plus 'Add to queue instead'.
+- **Result cards** have a score ring and the reason; status messages show under the link box.
+- **Storage** (left side): used and free space, one-click clean-up of temporary files, live recordings and unused sources, delete old clips, and choose another folder for NeonClipping's files. Supporters is a small toggle.
+- Also shipped from the earlier ChatGPT session: batch resume, timeline studio, series/topic/recap/trailer workflows, local MCP, direct YouTube/Instagram/TikTok publishing.
+
 ## 2026-11-23
 - **Facecam:** the automatic facecam search is now on by default for Make clips. If no webcam is found and you did not draw boxes, the clip uses the full-frame blur layout instead of an empty or wrong box.
 - **Stuck downloads fixed at the root:** FFmpeg downloads give up after 30 s without data, a part cut from a long video shows live progress, short videos and big parts are downloaded whole (about 8x faster than FFmpeg cutting) and cut afterwards, the speech model download says clearly when there is no internet, an empty audio file is retried with other formats, and a section that FFmpeg cannot fetch falls back to a single-file stream.

@@ -70,7 +70,7 @@ def cover_image(id:str):
  return FileResponse(path,media_type='image/jpeg')
 @app.get('/assets/{name}')
 def assets(name:str):
- if name not in ('app.js','style.css','extras.js','transcripts.js','vision.js','report.js','studio.js'):raise HTTPException(404)
+ if name not in ('app.js','style.css','extras.js','transcripts.js','vision.js','report.js','studio.js','composer.js','composer.css','sidebar.js'):raise HTTPException(404)
  return FileResponse(ROOT/name)
 @app.get('/text/{id}/{kind}')
 def text_file(id:str,kind:str):
@@ -747,6 +747,10 @@ def llm_forget_key():
 def llm_test():
  import llm
  return llm.test()
+
+import storage
+storage.attach(app,DATA,ROOT,lambda:any(row.get('status') in ('running','queued','starting','recording') for row in list(state.values())),
+               lambda:__import__('threading').Timer(1.5,__import__('updater').restart,[ROOT]).start())      # answer first, then restart on the new folder
 
 @app.get('/ytdl/settings')
 def ytdl_settings_get():

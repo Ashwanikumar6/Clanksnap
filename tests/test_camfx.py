@@ -162,3 +162,17 @@ class WholeVsRangedTests(unittest.TestCase):
         self.assertFalse(standalone.prefer_whole_download(30000, (0, 7000)))         # beyond the 2 h limit: never whole
         self.assertFalse(standalone.prefer_whole_download(None, (0, 10)))
         self.assertFalse(standalone.prefer_whole_download(100, None))
+
+
+class AssetsTests(unittest.TestCase):
+    def test_every_asset_in_the_page_is_served(self):
+        import re
+        root = Path(__file__).resolve().parents[1]
+        page = (root / 'index.html').read_text(encoding='utf-8')
+        wanted = set(re.findall(r'/assets/([A-Za-z0-9_.-]+?)\?v=', page))
+        app = (root / 'app.py').read_text(encoding='utf-8')
+        allowed = set(re.findall(r"'([A-Za-z0-9_.-]+\.(?:js|css))'", re.search(r"if name not in \(([^)]*)\)", app).group(1)))
+        self.assertTrue(wanted)
+        self.assertEqual(wanted - allowed, set(), 'referenced in index.html but not served by /assets')
+        for name in wanted:
+            self.assertTrue((root / name).is_file(), name)

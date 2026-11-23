@@ -58,3 +58,6 @@ __pycache__/
 !.github/workflows/
 !.github/workflows/*
 !studio.js
+!composer.js
+!composer.css
+!sidebar.js
