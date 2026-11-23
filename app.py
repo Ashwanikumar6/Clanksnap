@@ -70,7 +70,7 @@ def cover_image(id:str):
  return FileResponse(path,media_type='image/jpeg')
 @app.get('/assets/{name}')
 def assets(name:str):
- if name not in ('app.js','style.css','extras.js','transcripts.js','vision.js','report.js','studio.js','composer.js','composer.css','sidebar.js','library.js'):raise HTTPException(404)
+ if name not in ('app.js','style.css','extras.js','transcripts.js','vision.js','report.js','studio.js','composer.js','composer.css','sidebar.js','library.js','right-bar.js','right-bar.css'):raise HTTPException(404)
  return FileResponse(ROOT/name)
 @app.get('/text/{id}/{kind}')
 def text_file(id:str,kind:str):
@@ -748,6 +748,8 @@ def llm_test():
  import llm
  return llm.test()
 
+import assistant
+assistant.attach(app)
 import storage
 storage.attach(app,DATA,ROOT,lambda:any(row.get('status') in ('running','queued','starting','recording') for row in list(state.values())),
                lambda:__import__('threading').Timer(1.5,__import__('updater').restart,[ROOT]).start())      # answer first, then restart on the new folder

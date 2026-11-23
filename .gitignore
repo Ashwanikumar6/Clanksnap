@@ -61,4 +61,6 @@ __pycache__/
 !composer.js
 !composer.css
 !sidebar.js
+!right-bar.js
+!right-bar.css
 !library.js
