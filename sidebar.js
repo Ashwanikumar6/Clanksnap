@@ -65,6 +65,7 @@
         rows +
         '<div class="sd-row"><div><b>Delete old clips</b><small>Removes finished clips (video, captions, cover) older than the days you choose. This cannot be undone. Download the ones you want first.</small></div>' +
         '<div class="sd-inline"><input type="number" id="sd-days" min="1" max="3650" value="30" aria-label="Days"><span>days</span><button type="button" class="mini-btn warn" id="sd-old">Check</button></div></div>' +
+        '<div class="sd-row"><div><b>Open the folder</b><small>Show your clips and downloads in the file explorer.</small></div><button type="button" class="mini-btn" id="sd-open">Open folder</button></div>' +
         '<div class="sd-folder"><b>Where NeonClipping saves its files</b><small id="sd-current">' + esc(s.folder) + (s.configured ? '' : ' (default)') + '</small>' +
         '<div class="sd-inline"><input type="text" id="sd-path" placeholder="D:\\NeonClippingData" value="' + esc(s.configured || '') + '" aria-label="Data folder"><button type="button" class="mini-btn" id="sd-folder-save">Save and restart</button></div>' +
         '<small>Use a drive with more free space. NeonClipping restarts to use it. Files already saved stay in the old folder, so delete them above first or copy that folder yourself. Leave empty to go back to the default.</small></div>' +
@@ -99,6 +100,7 @@
         } catch (err) { msg(err.message); }
         return;
       }
+      if (e.target.id === 'sd-open') { try { await api('/storage/open', {}); } catch (err) { msg(err.message); } return; }
       if (e.target.id === 'sd-folder-save') {
         try {
           const path = $('sd-path').value.trim();
@@ -114,6 +116,25 @@
     });
     line();
     setInterval(() => { if (!document.hidden && !dlg.open) line(); }, 60000);
+
+    // ---- Version card: current version and a one-click update check
+    const ver = document.createElement('button');
+    ver.type = 'button';
+    ver.id = 'side-version';
+    ver.className = 'side-card';
+    ver.innerHTML = '<span class="sc-title">⟳ Updates</span><span class="sc-line" id="side-version-line">checking…</span>';
+    (card.after ? card : side).after(ver);
+    async function versionLine(force) {
+      try {
+        const u = await api('/update/status');
+        const line = $('side-version-line');
+        if (u.checkout) line.textContent = 'Developer copy (update with git)';
+        else if (u.available) { line.textContent = 'New version ready'; ver.classList.add('low'); }
+        else line.textContent = 'Up to date' + (u.current ? ' · ' + u.current : '');
+      } catch (e) { $('side-version-line').textContent = 'Could not check'; }
+    }
+    ver.onclick = () => { const bar = $('update-bar'); if (bar && !bar.hidden) bar.scrollIntoView({ block: 'center', behavior: 'smooth' }); else versionLine(); };
+    versionLine();
 
     // ---- Supporters as a small toggle
     const sup = $('supporters');

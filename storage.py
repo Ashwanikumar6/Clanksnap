@@ -219,6 +219,20 @@ def attach(app, data, root, busy_fn, restart_fn):
             raise HTTPException(400, str(e))
         return {'count': len(p['files']), 'bytes': p['bytes'], 'examples': [f.name for f in p['files'][:5]]}
 
+    @app.post('/storage/open')
+    def storage_open():
+        import subprocess, sys
+        try:
+            if sys.platform == 'win32':
+                os.startfile(str(Path(data).resolve()))      # noqa: S606 - opens the user's own data folder
+            elif sys.platform == 'darwin':
+                subprocess.Popen(['open', str(Path(data).resolve())])
+            else:
+                subprocess.Popen(['xdg-open', str(Path(data).resolve())])
+        except OSError:
+            raise HTTPException(500, 'The folder could not be opened.')
+        return {'ok': True}
+
     @app.post('/storage/clean')
     def storage_clean(body: dict):
         action = str(body.get('action') or '')
